@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ระบบคลังย่อย</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#f5f6f4;--card:#fff;--ink:#1d2321;--quiet:#66706b;--line:#e1e4e0;
+  --pri:#0f6b5c;--pri-soft:#e3f1ee;--warn:#b26a00;--warn-soft:#fdf1df;--bad:#b3261e;--bad-soft:#fbe9e7;--ok:#2e7d32;
+  --r:10px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"IBM Plex Sans Thai",system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
+h1,h2,h3{margin:0;font-weight:600}
+h2{font-size:20px;margin-bottom:4px}
+.sub{color:var(--quiet);font-size:13px;margin-bottom:16px}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:#fff;padding:8px 14px;color:var(--ink)}
+button.pri{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:500}
+button.pri:hover{filter:brightness(1.08)}
+button.ghost{border:none;background:none;color:var(--pri);padding:4px 6px}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);width:100%}
+input:focus,select:focus{outline:2px solid var(--pri-soft);border-color:var(--pri)}
+label{font-size:13px;color:var(--quiet);display:block;margin-bottom:4px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:500;color:var(--quiet);font-size:13px;border-bottom:1px solid var(--line);padding:8px}
+td{border-bottom:1px solid var(--line);padding:8px;vertical-align:middle}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:16px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>*{flex:1;min-width:140px}
+.badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--line);color:var(--ink);white-space:nowrap}
+.b-ok{background:var(--pri-soft);color:var(--pri)}.b-warn{background:var(--warn-soft);color:var(--warn)}.b-bad{background:var(--bad-soft);color:var(--bad)}
+.muted{color:var(--quiet)}
+/* layout */
+#login{max-width:380px;margin:12vh auto;padding:0 16px}
+#app{display:none;min-height:100vh}
+header{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:5}
+header .brand{font-weight:600;color:var(--pri)}
+header .who{margin-left:auto;font-size:13px;color:var(--quiet);text-align:right}
+nav{display:flex;gap:4px;overflow-x:auto;padding:8px 20px;background:#fff;border-bottom:1px solid var(--line)}
+nav button{border:none;background:none;padding:8px 12px;color:var(--quiet);white-space:nowrap}
+nav button.on{background:var(--pri-soft);color:var(--pri);font-weight:500}
+main{max-width:1100px;margin:0 auto;padding:20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.kpi .v{font-size:26px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:13px;color:var(--quiet)}
+.bar{height:10px;border-radius:5px;background:var(--pri)}
+.bar.warn{background:var(--warn)}
+.bartrack{background:var(--bg);border-radius:5px;flex:1}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:8px;color:#fff;background:var(--ink);z-index:50;max-width:90vw;display:none}
+.toast.bad{background:var(--bad)}.toast.ok{background:var(--ok)}
+.lines td input,.lines td select{padding:6px 8px}
+.empty{padding:24px;text-align:center;color:var(--quiet)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.split{grid-template-columns:1fr}main{padding:12px}}
+.clickrow{cursor:pointer}.clickrow:hover{background:var(--bg)}
+.sel{background:var(--pri-soft)!important}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="card">
+    <h2>ระบบคลังย่อย</h2>
+    <div class="sub">ศูนย์การแพทย์ มหาวิทยาลัยวลัยลักษณ์</div>
+    <form id="loginForm">
+      <label>อีเมล</label><input id="email" type="email" required autocomplete="username">
+      <div style="height:10px"></div>
+      <label>รหัสผ่าน</label><input id="pw" type="password" required autocomplete="current-password">
+      <div style="height:16px"></div>
+      <button class="pri" style="width:100%">เข้าสู่ระบบ</button>
+      <div id="loginErr" style="color:var(--bad);font-size:13px;margin-top:10px"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <span class="brand">ระบบคลังย่อย</span>
+    <div class="who"><div id="whoName"></div><div id="whoRole"></div></div>
+    <button id="logout">ออกจากระบบ</button>
+  </header>
+  <nav id="nav"></nav>
+  <main id="view"></main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL = 'https://oxcrpbmcmzfomsclmdng.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_frDUEq0gEkCJBkILHs4Zyw_o55iO_VP';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const ROLE_TH = {requester:'ผู้เบิก', unit_head:'หัวหน้าหน่วย', main_store:'คลังใหญ่', manager:'ผู้บริหาร', admin:'ผู้ดูแลระบบ'};
+const TYPE_TH = {REQ:'ใบเบิก',RECV:'รับเข้า',ISSUE:'จ่าย',USE:'ตัดใช้',TRF:'โอน',RET:'คืน',EXP:'ตัดหมดอายุ',ADJ:'ปรับยอด'};
+const STATUS_TH = {DRAFT:'ร่าง',SUBMIT:'รออนุมัติ',APPROVE:'อนุมัติแล้ว',DONE:'เสร็จ',CANCEL:'ยกเลิก'};
+const STATUS_CLS = {SUBMIT:'b-warn',APPROVE:'b-ok',DONE:'',CANCEL:'b-bad'};
+const ITEMTYPE_TH = {DRUG:'ยา',MEDSUP:'เวชภัณฑ์',OFFICE:'วัสดุสำนักงาน'};
+
+let me = null, stores = [], items = [], storeItems = [];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = (n, d=0) => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:d,maximumFractionDigits:d});
+const baht = n => fmt(n,2);
+const dt = s => s ? new Date(s).toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'}) : '';
+const storeName = id => stores.find(s=>s.store_id===id)?.store_name || '-';
+const itemById = id => items.find(i=>i.item_id===id);
+const sees = () => ['main_store','manager','admin'].includes(me.role);
+const mainStore = () => stores.find(s=>s.store_type==='MAIN');
+function toast(msg, kind=''){ const t=$('#toast'); t.textContent=msg; t.className='toast '+kind; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', kind==='bad'?6000:3000); }
+function errMsg(e){ return (e && (e.message||e.error_description)) || String(e); }
+
+// ---------- auth ----------
+$('#loginForm').addEventListener('submit', async e => {
+  e.preventDefault(); $('#loginErr').textContent='';
+  const { error } = await sb.auth.signInWithPassword({ email: $('#email').value.trim(), password: $('#pw').value });
+  if (error) { $('#loginErr').textContent = 'เข้าสู่ระบบไม่สำเร็จ: ' + error.message; return; }
+  boot();
+});
+$('#logout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+
+async function boot(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session) return;
+  const { data: prof } = await sb.from('profile').select('*').eq('user_id', session.user.id).maybeSingle();
+  if (!prof || !prof.is_active) {
+    $('#loginErr').textContent = 'บัญชีนี้ยังไม่ได้กำหนดบทบาท กรุณาติดต่อผู้ดูแลระบบ';
+    await sb.auth.signOut(); return;
+  }
+  me = prof;
+  await loadMaster();
+  $('#login').style.display='none'; $('#app').style.display='block';
+  $('#whoName').textContent = me.full_name;
+  $('#whoRole').textContent = ROLE_TH[me.role] + (me.store_id ? ' · ' + storeName(me.store_id) : '');
+  buildNav();
+}
+async function loadMaster(){
+  const [s,i,si] = await Promise.all([
+    sb.from('store').select('*').order('store_id'),
+    sb.from('item').select('*').order('item_name'),
+    sb.from('store_item').select('*')
+  ]);
+  stores = s.data||[]; items = i.data||[]; storeItems = si.data||[];
+}
+
+// ---------- nav ----------
+const PAGES = {
+  dash:    {t:'Dashboard',        roles:['manager','main_store','admin'], fn:pageDash},
+  req:     {t:'เบิกของ',          roles:['requester','unit_head'], fn:pageReq},
+  use:     {t:'ตัดใช้',           roles:['requester','unit_head'], fn:pageUse},
+  approve: {t:'อนุมัติ',          roles:['unit_head','manager','main_store','admin'], fn:pageApprove},
+  issue:   {t:'จ่ายตามใบเบิก',    roles:['main_store','admin'], fn:pageIssue},
+  recv:    {t:'รับเข้าคลังใหญ่',  roles:['main_store','admin'], fn:pageRecv},
+  bal:     {t:'ยอดคงเหลือ',       roles:['requester','unit_head','main_store','manager','admin'], fn:pageBal},
+  docs:    {t:'เอกสาร',           roles:['requester','unit_head','main_store','manager','admin'], fn:pageDocs},
+  master:  {t:'สินค้า / Min-Max', roles:['main_store','admin'], fn:pageMaster},
+};
+let current = null;
+function buildNav(){
+  const keys = Object.keys(PAGES).filter(k => PAGES[k].roles.includes(me.role));
+  $('#nav').innerHTML = keys.map(k=>`<button data-k="${k}">${PAGES[k].t}</button>`).join('');
+  $('#nav').onclick = e => { const k = e.target.dataset.k; if (k) go(k); };
+  const h = location.hash.slice(1);
+  go(keys.includes(h) ? h : keys[0]);
+}
+function go(k){
+  current = k;
+  try { history.replaceState(null,'','#'+k); } catch(_){}
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.k===k));
+  $('#view').innerHTML = '<div class="empty">กำลังโหลด…</div>';
+  PAGES[k].fn().catch(e => { $('#view').innerHTML = `<div class="card" style="color:var(--bad)">เกิดข้อผิดพลาด: ${esc(errMsg(e))}</div>`; });
+}
+
+// ---------- shared: line editor ----------
+function itemOptions(list, sel){
+  return '<option value="">— เลือกรายการ —</option>' + list.map(i =>
+    `<option value="${i.item_id}" ${i.item_id==sel?'selected':''}>${esc(i.item_name)} (${esc(i.item_code)})${i.is_high_alert?' ⚠':''}</option>`).join('');
+}
+function lineEditor(el, opts){
+  // opts: {itemList, cols:['lot','exp','cost','hn'], onChange}
+  const rows = opts.initial ? [...opts.initial] : [{}];
+  const c = opts.cols || [];
+  function render(){
+    el.innerHTML = `<table class="lines"><thead><tr><th>รายการ</th><th class="num" style="width:110px">จำนวน</th>
+      ${c.includes('lot')?'<th style="width:120px">Lot</th>':''}
+      ${c.includes('exp')?'<th style="width:150px">วันหมดอายุ</th>':''}
+      ${c.includes('cost')?'<th class="num" style="width:110px">ราคา/หน่วย</th>':''}
+      ${c.includes('hn')?'<th style="width:120px">HN</th><th style="width:120px">AN</th>':''}
+      ${c.includes('info')?'<th>คงเหลือ</th>':''}
+      <th style="width:40px"></th></tr></thead><tbody>
+      ${rows.map((r,ix)=>{
+        const it = itemById(+r.item_id);
+        return `<tr data-ix="${ix}">
+        <td><select data-f="item_id">${itemOptions(opts.itemList(), r.item_id)}</select></td>
+        <td><input data-f="qty" type="number" min="0" step="any" value="${r.qty??''}" style="text-align:right"></td>
+        ${c.includes('lot')?`<td><input data-f="lot_no" value="${esc(r.lot_no||'')}"></td>`:''}
+        ${c.includes('exp')?`<td><input data-f="exp_date" type="date" value="${r.exp_date||''}"></td>`:''}
+        ${c.includes('cost')?`<td><input data-f="unit_cost" type="number" step="any" value="${r.unit_cost??(it?.unit_cost??'')}" style="text-align:right"></td>`:''}
+        ${c.includes('hn')?`<td><input data-f="hn" value="${esc(r.hn||'')}" placeholder="${it?.is_high_alert?'จำเป็น':'ไม่บังคับ'}"></td><td><input data-f="an" value="${esc(r.an||'')}" placeholder="ไม่บังคับ"></td>`:''}
+        ${c.includes('info')?`<td class="muted" style="font-size:13px">${opts.info? opts.info(r):''}</td>`:''}
+        <td><button class="ghost" data-del="${ix}" title="ลบ">✕</button></td></tr>`}).join('')}
+      </tbody></table>
+      <div style="margin-top:8px"><button class="ghost" data-add>+ เพิ่มรายการ</button></div>`;
+  }
+  el.addEventListener('change', e => {
+    const tr = e.target.closest('tr[data-ix]'); if (!tr) return;
+    const f = e.target.dataset.f; rows[+tr.dataset.ix][f] = e.target.value;
+    if (f==='item_id') { const it=itemById(+e.target.value); if (c.includes('cost')) rows[+tr.dataset.ix].unit_cost = it?.unit_cost; render(); }
+    else if (opts.info && f==='qty') render();
+  });
+  el.addEventListener('click', e => {
+    if (e.target.dataset.add!==undefined) { rows.push({}); render(); }
+    if (e.target.dataset.del!==undefined) { rows.splice(+e.target.dataset.del,1); if(!rows.length) rows.push({}); render(); }
+  });
+  render();
+  return {
+    get: () => rows.filter(r=>r.item_id && Number(r.qty)>0).map(r=>({...r, item_id:+r.item_id, qty:Number(r.qty)})),
+    set: (rs) => { rows.length=0; rows.push(...(rs.length?rs:[{}])); render(); },
+  };
+}
+
+// create txn + lines (+post). Cleans up on failure.
+async function createTxn(head, lines, post){
+  const wantStatus = head.status;
+  const { data: t, error } = await sb.from('stock_txn').insert({...head, status:'DRAFT'}).select().single();
+  if (error) throw error;
+  const payload = lines.map((l,ix)=>({
+    txn_id:t.txn_id, line_no:ix+1, item_id:l.item_id, qty:l.qty,
+    lot_no:l.lot_no||null, exp_date:l.exp_date||null,
+    unit_cost: l.unit_cost===''||l.unit_cost==null ? null : Number(l.unit_cost),
+    hn:l.hn||null, an:l.an||null }));
+  const r = await sb.from('stock_txn_line').insert(payload);
+  if (r.error) { await sb.from('stock_txn').delete().eq('txn_id', t.txn_id); throw r.error; }
+  if (wantStatus === 'SUBMIT') {
+    const u = await sb.from('stock_txn').update({status:'SUBMIT'}).eq('txn_id', t.txn_id);
+    if (u.error) { await sb.from('stock_txn').delete().eq('txn_id', t.txn_id); throw u.error; }
+    t.status = 'SUBMIT';
+  }
+  if (post) {
+    const p = await sb.rpc('post_txn', { p_txn_id: t.txn_id });
+    if (p.error) { await sb.from('stock_txn').delete().eq('txn_id', t.txn_id); throw p.error; }
+  }
+  return t;
+}
+async function balanceMap(storeId){
+  const { data } = await sb.from('v_stock_balance').select('item_id,qty_on_hand').eq('store_id', storeId);
+  const m = {}; (data||[]).forEach(r => m[r.item_id] = (m[r.item_id]||0) + Number(r.qty_on_hand)); return m;
+}
+
+// ---------- pages ----------
+async function pageDash(){
+  const [sum, low, exp, use] = await Promise.all([
+    sb.from('v_store_summary').select('*'),
+    sb.from('v_below_min').select('*'),
+    sb.from('v_near_expiry').select('*').order('exp_date'),
+    sb.from('v_monthly_use').select('*').gte('month', new Date(new Date().getFullYear(), new Date().getMonth()-5, 1).toISOString().slice(0,10)),
+  ]);
+  const S = (sum.data||[]).filter(s=>s.store_type==='SUB');
+  const tot = S.reduce((a,s)=>a+Number(s.stock_value),0);
+  const e30 = S.reduce((a,s)=>a+Number(s.exp_30d_value),0);
+  const e90 = S.reduce((a,s)=>a+Number(s.exp_90d_value),0);
+  const max = Math.max(1,...S.map(s=>Number(s.stock_value)));
+  // monthly use by store
+  const U = use.data||[]; const months=[...new Set(U.map(u=>u.month))].sort();
+  const byMonth = months.map(m=>({m, v:U.filter(u=>u.month===m).reduce((a,u)=>a+Number(u.use_value),0)}));
+  const umax = Math.max(1,...byMonth.map(x=>x.v));
+  $('#view').innerHTML = `
+    <h2>Dashboard ผู้บริหาร</h2><div class="sub">ข้อมูล ณ ${new Date().toLocaleString('th-TH')}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">มูลค่าคงคลังย่อยทั้งหมด</div><div class="v">${baht(tot)}</div><div class="l">บาท · ${S.length} คลังย่อย</div></div>
+      <div class="kpi"><div class="l">หมดอายุใน 30 วัน</div><div class="v" style="color:${e30>0?'var(--bad)':'inherit'}">${baht(e30)}</div><div class="l">บาท</div></div>
+      <div class="kpi"><div class="l">หมดอายุใน 90 วัน</div><div class="v" style="color:${e90>0?'var(--warn)':'inherit'}">${baht(e90)}</div><div class="l">บาท</div></div>
+      <div class="kpi"><div class="l">รายการต่ำกว่า Min</div><div class="v" style="color:${(low.data||[]).length?'var(--warn)':'inherit'}">${fmt((low.data||[]).length)}</div><div class="l">รายการ</div></div>
+    </div>
+    <div class="split">
+      <div class="card"><h3 style="font-size:16px">มูลค่าคงคลังรายคลังย่อย (บาท)</h3><div class="sub">แถบสีส้ม = ส่วนที่หมดอายุใน 90 วัน</div>
+        ${S.length? S.sort((a,b)=>b.stock_value-a.stock_value).map(s=>`
+          <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:14px"><span>${esc(s.store_name)}</span><span class="num">${baht(s.stock_value)}</span></div>
+          <div class="bartrack" style="display:flex;margin-top:4px"><div class="bar" style="width:${(s.stock_value-s.exp_90d_value)/max*100}%;border-radius:5px 0 0 5px"></div><div class="bar warn" style="width:${s.exp_90d_value/max*100}%;border-radius:0 5px 5px 0"></div></div></div>`).join('') : '<div class="empty">ยังไม่มีข้อมูล</div>'}
+      </div>
+      <div class="card"><h3 style="font-size:16px">มูลค่าการใช้จริงรายเดือน (บาท)</h3><div class="sub">รวมทุกคลังย่อย 6 เดือนล่าสุด</div>
+        ${byMonth.length? byMonth.map(x=>`
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:14px"><span style="width:70px">${new Date(x.m).toLocaleDateString('th-TH',{month:'short',year:'2-digit'})}</span>
+          <div class="bartrack"><div class="bar" style="width:${x.v/umax*100}%"></div></div><span class="num" style="width:100px;text-align:right">${baht(x.v)}</span></div>`).join('') : '<div class="empty">ยังไม่มีการตัดใช้</div>'}
+      </div>
+    </div>
+    <div class="card"><h3 style="font-size:16px">ใกล้หมดอายุ (90 วัน)</h3><div class="sub">เรียงตามวันหมดอายุ</div>
+      ${tbl(exp.data, [['store_name','คลัง'],['item_name','รายการ'],['lot_no','Lot'],['exp_date','หมดอายุ',dt],['bucket','',v=>`<span class="badge ${v.startsWith('หมด')||v.startsWith('≤')?'b-bad':'b-warn'}">${v}</span>`],['qty_on_hand','คงเหลือ',fmt,1],['stock_value','มูลค่า',baht,1]])}
+    </div>
+    <div class="card"><h3 style="font-size:16px">ต่ำกว่า Min</h3>
+      ${tbl(low.data, [['store_name','คลัง'],['item_name','รายการ'],['on_hand','คงเหลือ',fmt,1],['min_qty','Min',fmt,1],['max_qty','Max',fmt,1],['suggest_req_qty','ควรเบิก',fmt,1]])}
+    </div>`;
+}
+function tbl(rows, cols){
+  if (!rows || !rows.length) return '<div class="empty">ไม่มีรายการ</div>';
+  return `<div style="overflow-x:auto"><table><thead><tr>${cols.map(c=>`<th class="${c[3]?'num':''}">${c[1]}</th>`).join('')}</tr></thead><tbody>
+    ${rows.map(r=>`<tr>${cols.map(c=>`<td class="${c[3]?'num':''}">${c[2]?c[2](r[c[0]],r):esc(r[c[0]])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+async function pageReq(){
+  const my = me.store_id, parent = stores.find(s=>s.store_id===my)?.parent_store_id || mainStore()?.store_id;
+  const allowed = storeItems.filter(x=>x.store_id===my).map(x=>x.item_id);
+  const list = () => items.filter(i=>i.is_active && (allowed.length? allowed.includes(i.item_id) : true));
+  const { data: low } = await sb.from('v_below_min').select('*').eq('store_id', my);
+  const bal = await balanceMap(my);
+  $('#view').innerHTML = `<h2>เบิกของจาก${esc(storeName(parent))}</h2><div class="sub">หน่วยเบิก: ${esc(storeName(my))} · ส่งแล้วรอหัวหน้าหน่วยอนุมัติ</div>
+    ${low && low.length ? `<div class="card" style="background:var(--warn-soft);border-color:#f3dcb4"><b>${low.length} รายการต่ำกว่า Min</b> <span class="muted">ระบบเสนอจำนวนเบิกให้เต็ม Max</span> <button class="pri" id="fill" style="margin-left:8px">ใส่รายการที่เสนอ</button></div>`:''}
+    <div class="card"><div id="lines"></div>
+      <div style="margin-top:12px"><label>หมายเหตุ</label><input id="remark"></div>
+      <div style="margin-top:16px;text-align:right"><button class="pri" id="send">ส่งใบเบิก</button></div></div>`;
+  const ed = lineEditor($('#lines'), {itemList:list, cols:['info'], info:r=> r.item_id ? `มีอยู่ ${fmt(bal[+r.item_id]||0)} ${esc(itemById(+r.item_id)?.base_unit||'')}` : ''});
+  if ($('#fill')) $('#fill').onclick = () => ed.set(low.map(l=>({item_id:l.item_id, qty:l.suggest_req_qty})));
+  $('#send').onclick = async () => {
+    const lines = ed.get(); if (!lines.length) return toast('ยังไม่มีรายการ','bad');
+    $('#send').disabled = true;
+    try { const t = await createTxn({txn_type:'REQ', from_store_id:parent, to_store_id:my, status:'SUBMIT', remark:$('#remark').value||null}, lines, false);
+      toast('ส่งใบเบิก '+t.txn_no+' แล้ว','ok'); go('docs'); }
+    catch(e){ toast(errMsg(e),'bad'); $('#send').disabled=false; }
+  };
+}
+
+async function pageUse(){
+  const my = me.store_id; const bal = await balanceMap(my);
+  const list = () => items.filter(i=> (bal[i.item_id]||0) > 0);
+  $('#view').innerHTML = `<h2>ตัดใช้</h2><div class="sub">${esc(storeName(my))} · ตัดใช้รวมรายวัน ระบุ HN/AN ได้ถ้าต้องการ (ยา ⚠ High-alert ต้องระบุ)</div>
+    <div class="card"><div id="lines"></div>
+    <div style="margin-top:16px;text-align:right"><button class="pri" id="save">บันทึกตัดใช้</button></div></div>`;
+  const ed = lineEditor($('#lines'), {itemList:list, cols:['hn','info'], info:r=>{ if(!r.item_id) return ''; const b=bal[+r.item_id]||0; const over=Number(r.qty)>b; return `<span style="color:${over?'var(--bad)':'inherit'}">มี ${fmt(b)}</span>`; }});
+  $('#save').onclick = async () => {
+    const lines = ed.get(); if (!lines.length) return toast('ยังไม่มีรายการ','bad');
+    const miss = lines.find(l=>itemById(l.item_id)?.is_high_alert && !l.hn && !l.an);
+    if (miss) return toast(itemById(miss.item_id).item_name+' เป็นยา High-alert ต้องระบุ HN หรือ AN','bad');
+    $('#save').disabled = true;
+    try { await createTxn({txn_type:'USE', from_store_id:my, status:'DRAFT'}, lines, true); toast('บันทึกตัดใช้แล้ว','ok'); go('use'); }
+    catch(e){ toast(errMsg(e),'bad'); $('#save').disabled=false; }
+  };
+}
+
+async function txnLines(id){
+  const { data } = await sb.from('stock_txn_line').select('*').eq('txn_id', id).order('line_no'); return data||[];
+}
+function linesTable(lines){
+  return tbl(lines.map(l=>({...l, name:itemById(l.item_id)?.item_name, unit:itemById(l.item_id)?.base_unit})),
+    [['name','รายการ'],['qty','จำนวน',fmt,1],['unit','หน่วย'],['lot_no','Lot',v=>esc(v||'')],['hn','HN',v=>esc(v||'')]]);
+}
+
+async function pageApprove(){
+  let q = sb.from('stock_txn').select('*').eq('status','SUBMIT').order('txn_date');
+  const { data } = await q;
+  const list = (data||[]).filter(t => me.role!=='unit_head' || [t.from_store_id,t.to_store_id].includes(me.store_id));
+  $('#view').innerHTML = `<h2>รออนุมัติ</h2><div class="sub">ผู้สร้างเอกสารอนุมัติเอกสารตัวเองไม่ได้ · ใบปรับยอดต้องผู้บริหารอนุมัติ</div>
+    <div class="split"><div class="card" id="lst"></div><div class="card" id="det"><div class="empty">เลือกเอกสารทางซ้าย</div></div></div>`;
+  $('#lst').innerHTML = list.length ? `<table><tbody>${list.map(t=>`<tr class="clickrow" data-id="${t.txn_id}"><td><b>${TYPE_TH[t.txn_type]}</b> ${esc(t.txn_no)}<div class="muted" style="font-size:13px">${esc(storeName(t.from_store_id))} → ${esc(storeName(t.to_store_id))} · ${dt(t.txn_date)}</div></td></tr>`).join('')}</tbody></table>` : '<div class="empty">ไม่มีเอกสารรออนุมัติ</div>';
+  $('#lst').onclick = async e => {
+    const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+    document.querySelectorAll('#lst tr').forEach(x=>x.classList.toggle('sel', x===tr));
+    const t = list.find(x=>x.txn_id==tr.dataset.id); const lines = await txnLines(t.txn_id);
+    $('#det').innerHTML = `<h3 style="font-size:16px">${TYPE_TH[t.txn_type]} ${esc(t.txn_no)}</h3><div class="sub">${esc(storeName(t.from_store_id))} → ${esc(storeName(t.to_store_id))}${t.remark?' · '+esc(t.remark):''}</div>
+      ${linesTable(lines)}<div style="margin-top:16px;text-align:right"><button class="pri" id="ok">อนุมัติ</button></div>`;
+    $('#ok').onclick = async () => {
+      $('#ok').disabled = true;
+      const { error } = await sb.rpc('approve_txn', { p_txn_id: t.txn_id });
+      if (error) { toast(error.message,'bad'); $('#ok').disabled=false; } else { toast('อนุมัติแล้ว','ok'); go('approve'); }
+    };
+  };
+}
+
+async function pageIssue(){
+  const { data } = await sb.from('stock_txn').select('*').eq('txn_type','REQ').eq('status','APPROVE').order('approved_at');
+  const list = data||[];
+  $('#view').innerHTML = `<h2>จ่ายตามใบเบิก</h2><div class="sub">ใบเบิกที่อนุมัติแล้ว · ระบบเลือก Lot ตาม FEFO ให้อัตโนมัติ</div>
+    <div class="split"><div class="card" id="lst"></div><div class="card" id="det"><div class="empty">เลือกใบเบิกทางซ้าย</div></div></div>`;
+  $('#lst').innerHTML = list.length ? `<table><tbody>${list.map(t=>`<tr class="clickrow" data-id="${t.txn_id}"><td><b>${esc(t.txn_no)}</b><div class="muted" style="font-size:13px">${esc(storeName(t.to_store_id))} · อนุมัติ ${dt(t.approved_at)}</div></td></tr>`).join('')}</tbody></table>` : '<div class="empty">ไม่มีใบเบิกรอจ่าย</div>';
+  $('#lst').onclick = async e => {
+    const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+    document.querySelectorAll('#lst tr').forEach(x=>x.classList.toggle('sel', x===tr));
+    const t = list.find(x=>x.txn_id==tr.dataset.id); const lines = await txnLines(t.txn_id); const bal = await balanceMap(t.from_store_id);
+    $('#det').innerHTML = `<h3 style="font-size:16px">${esc(t.txn_no)} → ${esc(storeName(t.to_store_id))}</h3><div class="sub">แก้จำนวนจ่ายจริงได้ ถ้าของไม่พอ</div><div id="lines"></div>
+      <div style="margin-top:16px;text-align:right"><button class="pri" id="pay">จ่ายและบันทึก</button></div>`;
+    const ed = lineEditor($('#lines'), {itemList:()=>items, cols:['info'], initial: lines.map(l=>({item_id:l.item_id, qty:Math.min(Number(l.qty), bal[l.item_id]||0)})),
+      info:r=> r.item_id ? `ขอ ${fmt(lines.find(l=>l.item_id==r.item_id)?.qty||0)} · คลังมี ${fmt(bal[+r.item_id]||0)}` : ''});
+    $('#pay').onclick = async () => {
+      const ls = ed.get(); if (!ls.length) return toast('ไม่มีรายการจ่าย','bad');
+      $('#pay').disabled = true;
+      try { await createTxn({txn_type:'ISSUE', from_store_id:t.from_store_id, to_store_id:t.to_store_id, ref_txn_id:t.txn_id, status:'DRAFT'}, ls, true);
+        toast('จ่ายแล้ว ยอดเข้าคลัง '+storeName(t.to_store_id),'ok'); go('issue'); }
+      catch(e){ toast(errMsg(e),'bad'); $('#pay').disabled=false; }
+    };
+  };
+}
+
+async function pageRecv(){
+  const m = mainStore(); if (!m) { $('#view').innerHTML='<div class="card">ยังไม่มีคลังใหญ่ในระบบ</div>'; return; }
+  $('#view').innerHTML = `<h2>รับเข้าคลังใหญ่</h2><div class="sub">รับจากผู้ขาย ระบุ Lot และวันหมดอายุ</div>
+    <div class="card"><div class="row"><div><label>เลขที่ใบส่งของ / หมายเหตุ</label><input id="remark"></div></div><div style="height:12px"></div><div id="lines"></div>
+    <div style="margin-top:16px;text-align:right"><button class="pri" id="save">บันทึกรับเข้า</button></div></div>`;
+  const ed = lineEditor($('#lines'), {itemList:()=>items.filter(i=>i.is_active), cols:['lot','exp','cost']});
+  $('#save').onclick = async () => {
+    const lines = ed.get(); if (!lines.length) return toast('ยังไม่มีรายการ','bad');
+    if (lines.some(l=>!l.lot_no)) return toast('กรุณาระบุ Lot ทุกรายการ','bad');
+    $('#save').disabled = true;
+    try { await createTxn({txn_type:'RECV', to_store_id:m.store_id, status:'DRAFT', remark:$('#remark').value||null}, lines, true); toast('รับเข้าแล้ว','ok'); go('recv'); }
+    catch(e){ toast(errMsg(e),'bad'); $('#save').disabled=false; }
+  };
+}
+
+async function pageBal(){
+  const visible = sees() ? stores : stores.filter(s=>s.store_id===me.store_id);
+  $('#view').innerHTML = `<h2>ยอดคงเหลือ</h2><div class="sub">ราย Lot · เรียงตามวันหมดอายุ</div>
+    <div class="card"><div class="row"><div><label>คลัง</label><select id="st">${visible.map(s=>`<option value="${s.store_id}" ${s.store_id===me.store_id?'selected':''}>${esc(s.store_name)}</option>`).join('')}</select></div>
+    <div><label>ค้นหา</label><input id="q" placeholder="ชื่อหรือรหัส"></div></div></div><div class="card" id="res"></div>`;
+  const load = async () => {
+    const { data } = await sb.from('v_stock_balance').select('*').eq('store_id', +$('#st').value).order('exp_date',{nullsFirst:false});
+    const q = $('#q').value.trim().toLowerCase();
+    const rows = (data||[]).filter(r=>!q || r.item_name.toLowerCase().includes(q) || r.item_code.toLowerCase().includes(q));
+    const today = new Date(); const tot = rows.reduce((a,r)=>a+Number(r.stock_value),0);
+    $('#res').innerHTML = `<div class="sub">มูลค่ารวม ${baht(tot)} บาท · ${rows.length} รายการ</div>` + tbl(rows, [['item_code','รหัส'],['item_name','รายการ',(v,r)=>esc(v)+(itemById(r.item_id)?.is_high_alert?' <span class="badge b-bad">High-alert</span>':'')],['lot_no','Lot'],
+      ['exp_date','หมดอายุ',v=>{ if(!v) return ''; const d=(new Date(v)-today)/864e5; return dt(v)+(d<=30?' <span class="badge b-bad">≤30 วัน</span>':d<=90?' <span class="badge b-warn">≤90 วัน</span>':''); }],
+      ['qty_on_hand','คงเหลือ',fmt,1],['base_unit','หน่วย'],['stock_value','มูลค่า',baht,1]]);
+  };
+  $('#st').onchange = load; $('#q').oninput = load; load();
+}
+
+async function pageDocs(){
+  const { data } = await sb.from('stock_txn').select('*').order('txn_date',{ascending:false}).limit(200);
+  $('#view').innerHTML = `<h2>เอกสาร</h2><div class="sub">200 รายการล่าสุดที่คุณมีสิทธิ์เห็น · คลิกเพื่อดูรายการ</div><div class="card" id="lst"></div><div class="card" id="det" style="display:none"></div>`;
+  const list = data||[];
+  $('#lst').innerHTML = tbl(list, [['txn_date','วันที่',dt],['txn_no','เลขที่'],['txn_type','ประเภท',v=>TYPE_TH[v]],['from_store_id','จาก',v=>esc(storeName(v))],['to_store_id','ถึง',v=>esc(storeName(v))],['status','สถานะ',v=>`<span class="badge ${STATUS_CLS[v]||''}">${STATUS_TH[v]}</span>`]]);
+  // make rows clickable
+  document.querySelectorAll('#lst tbody tr').forEach((tr,i)=>{ tr.classList.add('clickrow'); tr.onclick = async () => {
+    const t = list[i]; const lines = await txnLines(t.txn_id);
+    $('#det').style.display='block';
+    $('#det').innerHTML = `<h3 style="font-size:16px">${TYPE_TH[t.txn_type]} ${esc(t.txn_no)}</h3><div class="sub">${STATUS_TH[t.status]}${t.remark?' · '+esc(t.remark):''}</div>${linesTable(lines)}
+      ${t.status==='SUBMIT' && t.created_by===me.user_id ? '<div style="margin-top:12px;text-align:right"><button id="cancel">ยกเลิกเอกสาร</button></div>':''}`;
+    if ($('#cancel')) $('#cancel').onclick = async () => {
+      const { error } = await sb.from('stock_txn').update({status:'CANCEL'}).eq('txn_id', t.txn_id);
+      if (error) toast(error.message,'bad'); else { toast('ยกเลิกแล้ว','ok'); go('docs'); }
+    };
+    $('#det').scrollIntoView({behavior:'smooth'});
+  }; });
+}
+
+async function pageMaster(){
+  const subs = stores.filter(s=>s.store_type==='SUB');
+  $('#view').innerHTML = `<h2>สินค้าและ Min/Max</h2><div class="sub">เพิ่มรายการสินค้า และกำหนดระดับ Min/Max ของแต่ละคลังย่อย</div>
+    <div class="card"><h3 style="font-size:16px;margin-bottom:12px">เพิ่มสินค้า</h3>
+      <div class="row"><div><label>รหัส</label><input id="ic"></div><div style="flex:2"><label>ชื่อ</label><input id="in"></div>
+      <div><label>ประเภท</label><select id="it"><option value="DRUG">ยา</option><option value="MEDSUP">เวชภัณฑ์</option><option value="OFFICE">วัสดุสำนักงาน</option></select></div>
+      <div><label>หน่วยนับ</label><input id="iu"></div><div><label>ราคา/หน่วย</label><input id="ip" type="number" step="any"></div>
+      <div style="min-width:120px"><label><input type="checkbox" id="ih" style="width:auto"> High-alert</label></div>
+      <div style="flex:0"><button class="pri" id="addItem">เพิ่ม</button></div></div></div>
+    <div class="card"><h3 style="font-size:16px;margin-bottom:12px">Min/Max ของคลังย่อย</h3>
+      <div class="row"><div><label>คลังย่อย</label><select id="ms">${subs.map(s=>`<option value="${s.store_id}">${esc(s.store_name)}</option>`).join('')}</select></div><div></div></div>
+      <div id="mm" style="margin-top:12px"></div></div>
+    <div class="card"><h3 style="font-size:16px;margin-bottom:12px">สินค้าทั้งหมด (${items.length})</h3>
+      ${tbl(items, [['item_code','รหัส'],['item_name','ชื่อ'],['item_type','ประเภท',v=>ITEMTYPE_TH[v]],['base_unit','หน่วย'],['unit_cost','ราคา',baht,1],['is_high_alert','High-alert',v=>v?'<span class="badge b-bad">ใช่</span>':'']])}</div>`;
+  $('#addItem').onclick = async () => {
+    const rec = {item_code:$('#ic').value.trim(), item_name:$('#in').value.trim(), item_type:$('#it').value, base_unit:$('#iu').value.trim(), unit_cost:Number($('#ip').value||0), is_high_alert:$('#ih').checked};
+    if (!rec.item_code || !rec.item_name || !rec.base_unit) return toast('กรอกรหัส ชื่อ และหน่วยนับ','bad');
+    const { error } = await sb.from('item').insert(rec);
+    if (error) toast(error.message,'bad'); else { toast('เพิ่มแล้ว','ok'); await loadMaster(); go('master'); }
+  };
+  const renderMM = () => {
+    const sid = +$('#ms').value; if (!sid) { $('#mm').innerHTML='<div class="empty">ยังไม่มีคลังย่อย</div>'; return; }
+    const cur = storeItems.filter(x=>x.store_id===sid);
+    $('#mm').innerHTML = `<table><thead><tr><th>รายการ</th><th class="num" style="width:120px">Min</th><th class="num" style="width:120px">Max</th><th style="width:90px"></th></tr></thead><tbody>
+      ${cur.map(x=>`<tr><td>${esc(itemById(x.item_id)?.item_name)}</td><td><input data-i="${x.item_id}" data-f="min_qty" type="number" value="${x.min_qty}" style="text-align:right"></td><td><input data-i="${x.item_id}" data-f="max_qty" type="number" value="${x.max_qty}" style="text-align:right"></td><td><button class="ghost" data-save="${x.item_id}">บันทึก</button></td></tr>`).join('')}
+      <tr><td><select id="newI">${itemOptions(items.filter(i=>!cur.some(c=>c.item_id===i.item_id)))}</select></td><td><input id="newMin" type="number" style="text-align:right"></td><td><input id="newMax" type="number" style="text-align:right"></td><td><button class="pri" id="addMM">เพิ่ม</button></td></tr>
+      </tbody></table>`;
+  };
+  $('#ms').onchange = renderMM; renderMM();
+  $('#mm').onclick = async e => {
+    const sid = +$('#ms').value;
+    if (e.target.id==='addMM') {
+      const rec = {store_id:sid, item_id:+$('#newI').value, min_qty:Number($('#newMin').value||0), max_qty:Number($('#newMax').value||0)};
+      if (!rec.item_id) return toast('เลือกรายการ','bad');
+      const { error } = await sb.from('store_item').insert(rec);
+      if (error) return toast(error.message,'bad'); toast('เพิ่มแล้ว','ok'); await loadMaster(); renderMM();
+    }
+    if (e.target.dataset.save) {
+      const iid = +e.target.dataset.save;
+      const v = f => Number(document.querySelector(`#mm input[data-i="${iid}"][data-f="${f}"]`).value||0);
+      const { error } = await sb.from('store_item').update({min_qty:v('min_qty'), max_qty:v('max_qty')}).eq('store_id',sid).eq('item_id',iid);
+      if (error) return toast(error.message,'bad'); toast('บันทึกแล้ว','ok'); await loadMaster();
+    }
+  };
+}
+
+boot();
+</script>
+</body>
+</html>
