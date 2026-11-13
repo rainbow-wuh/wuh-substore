@@ -102,7 +102,7 @@ const STATUS_TH = {DRAFT:'ร่าง',SUBMIT:'รออนุมัติ',APP
 const STATUS_CLS = {SUBMIT:'b-warn',APPROVE:'b-ok',DONE:'',CANCEL:'b-bad'};
 const ITEMTYPE_TH = {DRUG:'ยา',MEDSUP:'เวชภัณฑ์',OFFICE:'วัสดุสำนักงาน'};
 
-let me = null, stores = [], items = [], storeItems = [];
+let me = null, stores = [], items = [], storeItems = [], uoms = [], itemUoms = [];
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (n, d=0) => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -140,12 +140,14 @@ async function boot(){
   buildNav();
 }
 async function loadMaster(){
-  const [s,i,si] = await Promise.all([
+  const [s,i,si,u,iu] = await Promise.all([
     sb.from('store').select('*').order('store_id'),
     sb.from('item').select('*').order('item_name'),
-    sb.from('store_item').select('*')
+    sb.from('store_item').select('*'),
+    sb.from('uom').select('*').order('uom_name'),
+    sb.from('item_uom').select('*')
   ]);
-  stores = s.data||[]; items = i.data||[]; storeItems = si.data||[];
+  stores = s.data||[]; items = i.data||[]; storeItems = si.data||[]; uoms = u.data||[]; itemUoms = iu.data||[];
 }
 
 // ---------- nav ----------
@@ -159,6 +161,7 @@ const PAGES = {
   bal:     {t:'ยอดคงเหลือ',       roles:['requester','unit_head','main_store','manager','admin'], fn:pageBal},
   docs:    {t:'เอกสาร',           roles:['requester','unit_head','main_store','manager','admin'], fn:pageDocs},
   master:  {t:'สินค้า / Min-Max', roles:['main_store','admin'], fn:pageMaster},
+  uom:     {t:'หน่วยนับ',         roles:['main_store','admin'], fn:pageUom},
 };
 let current = null;
 function buildNav(){
@@ -181,12 +184,22 @@ function itemOptions(list, sel){
   return '<option value="">— เลือกรายการ —</option>' + list.map(i =>
     `<option value="${i.item_id}" ${i.item_id==sel?'selected':''}>${esc(i.item_name)} (${esc(i.item_code)})${i.is_high_alert?' ⚠':''}</option>`).join('');
 }
+function uomFactor(it, u){
+  if (!it || !u || u === it.base_unit) return 1;
+  return Number(itemUoms.find(x=>x.item_id===it.item_id && x.uom_name===u)?.factor || 1);
+}
+function uomOptions(it, sel){
+  if (!it) return '<option value=""></option>';
+  const list = [{uom_name:it.base_unit, factor:1}, ...itemUoms.filter(x=>x.item_id===it.item_id)];
+  return list.map(x=>`<option value="${esc(x.uom_name)}" ${x.uom_name===(sel||it.base_unit)?'selected':''}>${esc(x.uom_name)}${x.factor!=1?` (${fmt(x.factor)} ${esc(it.base_unit)})`:''}</option>`).join('');
+}
 function lineEditor(el, opts){
   // opts: {itemList, cols:['lot','exp','cost','hn'], onChange}
   const rows = opts.initial ? [...opts.initial] : [{}];
   const c = opts.cols || [];
   function render(){
     el.innerHTML = `<table class="lines"><thead><tr><th>รายการ</th><th class="num" style="width:110px">จำนวน</th>
+      ${c.includes('uom')?'<th style="width:150px">หน่วย</th>':''}
       ${c.includes('lot')?'<th style="width:120px">Lot</th>':''}
       ${c.includes('exp')?'<th style="width:150px">วันหมดอายุ</th>':''}
       ${c.includes('cost')?'<th class="num" style="width:110px">ราคา/หน่วย</th>':''}
@@ -198,6 +211,7 @@ function lineEditor(el, opts){
         return `<tr data-ix="${ix}">
         <td><select data-f="item_id">${itemOptions(opts.itemList(), r.item_id)}</select></td>
         <td><input data-f="qty" type="number" min="0" step="any" value="${r.qty??''}" style="text-align:right"></td>
+        ${c.includes('uom')?`<td><select data-f="uom">${uomOptions(it, r.uom)}</select></td>`:''}
         ${c.includes('lot')?`<td><input data-f="lot_no" value="${esc(r.lot_no||'')}"></td>`:''}
         ${c.includes('exp')?`<td><input data-f="exp_date" type="date" value="${r.exp_date||''}"></td>`:''}
         ${c.includes('cost')?`<td><input data-f="unit_cost" type="number" step="any" value="${r.unit_cost??(it?.unit_cost??'')}" style="text-align:right"></td>`:''}
@@ -210,7 +224,9 @@ function lineEditor(el, opts){
   el.addEventListener('change', e => {
     const tr = e.target.closest('tr[data-ix]'); if (!tr) return;
     const f = e.target.dataset.f; rows[+tr.dataset.ix][f] = e.target.value;
-    if (f==='item_id') { const it=itemById(+e.target.value); if (c.includes('cost')) rows[+tr.dataset.ix].unit_cost = it?.unit_cost; render(); }
+    const row = rows[+tr.dataset.ix];
+    if (f==='item_id') { const it=itemById(+e.target.value); row.uom = it?.base_unit; if (c.includes('cost')) row.unit_cost = it?.unit_cost; render(); }
+    else if (f==='uom') { const it=itemById(+row.item_id); if (c.includes('cost') && it) row.unit_cost = +(Number(it.unit_cost||0) * uomFactor(it, row.uom)).toFixed(2); render(); }
     else if (opts.info && f==='qty') render();
   });
   el.addEventListener('click', e => {
@@ -219,7 +235,11 @@ function lineEditor(el, opts){
   });
   render();
   return {
-    get: () => rows.filter(r=>r.item_id && Number(r.qty)>0).map(r=>({...r, item_id:+r.item_id, qty:Number(r.qty)})),
+    get: () => rows.filter(r=>r.item_id && Number(r.qty)>0).map(r=>{
+      const f = c.includes('uom') ? uomFactor(itemById(+r.item_id), r.uom) : 1;
+      const cost = r.unit_cost===''||r.unit_cost==null ? null : Number(r.unit_cost)/f;
+      return {...r, item_id:+r.item_id, qty:Number(r.qty)*f, unit_cost: cost==null?null:+cost.toFixed(2)};
+    }),
     set: (rs) => { rows.length=0; rows.push(...(rs.length?rs:[{}])); render(); },
   };
 }
@@ -399,7 +419,7 @@ async function pageRecv(){
   $('#view').innerHTML = `<h2>รับเข้าคลังใหญ่</h2><div class="sub">รับจากผู้ขาย ระบุ Lot และวันหมดอายุ</div>
     <div class="card"><div class="row"><div><label>เลขที่ใบส่งของ / หมายเหตุ</label><input id="remark"></div></div><div style="height:12px"></div><div id="lines"></div>
     <div style="margin-top:16px;text-align:right"><button class="pri" id="save">บันทึกรับเข้า</button></div></div>`;
-  const ed = lineEditor($('#lines'), {itemList:()=>items.filter(i=>i.is_active), cols:['lot','exp','cost']});
+  const ed = lineEditor($('#lines'), {itemList:()=>items.filter(i=>i.is_active), cols:['uom','lot','exp','cost']});
   $('#save').onclick = async () => {
     const lines = ed.get(); if (!lines.length) return toast('ยังไม่มีรายการ','bad');
     if (lines.some(l=>!l.lot_no)) return toast('กรุณาระบุ Lot ทุกรายการ','bad');
@@ -451,7 +471,7 @@ async function pageMaster(){
     <div class="card"><h3 style="font-size:16px;margin-bottom:12px">เพิ่มสินค้า</h3>
       <div class="row"><div><label>รหัส</label><input id="ic"></div><div style="flex:2"><label>ชื่อ</label><input id="in"></div>
       <div><label>ประเภท</label><select id="it"><option value="DRUG">ยา</option><option value="MEDSUP">เวชภัณฑ์</option><option value="OFFICE">วัสดุสำนักงาน</option></select></div>
-      <div><label>หน่วยนับ</label><input id="iu"></div><div><label>ราคา/หน่วย</label><input id="ip" type="number" step="any"></div>
+      <div><label>หน่วยนับฐาน</label><select id="iu"><option value="">— เลือก —</option>${uoms.filter(u=>u.is_active).map(u=>`<option>${esc(u.uom_name)}</option>`).join('')}</select></div><div><label>ราคา/หน่วย</label><input id="ip" type="number" step="any"></div>
       <div style="min-width:120px"><label><input type="checkbox" id="ih" style="width:auto"> High-alert</label></div>
       <div style="flex:0"><button class="pri" id="addItem">เพิ่ม</button></div></div></div>
     <div class="card"><h3 style="font-size:16px;margin-bottom:12px">Min/Max ของคลังย่อย</h3>
@@ -489,6 +509,59 @@ async function pageMaster(){
       if (error) return toast(error.message,'bad'); toast('บันทึกแล้ว','ok'); await loadMaster();
     }
   };
+}
+
+async function pageUom(){
+  $('#view').innerHTML = `<h2>หน่วยนับสินค้า</h2><div class="sub">ตั้งรายชื่อหน่วยนับ และอัตราแปลงหน่วยของแต่ละสินค้า (เช่น 1 กล่อง = 100 ชิ้น) เพื่อใช้ตอนรับเข้า</div>
+    <div class="split">
+      <div class="card" id="ucard"><h3 style="font-size:16px;margin-bottom:12px">รายชื่อหน่วยนับ (${uoms.length})</h3>
+        <div class="row" style="margin-bottom:12px"><div><label>เพิ่มหน่วยใหม่</label><input id="nu" placeholder="เช่น ขวด"></div><div style="flex:0"><button class="pri" id="addU">เพิ่ม</button></div></div>
+        <div style="max-height:420px;overflow:auto"><table><thead><tr><th>หน่วย</th><th>ใช้ในสินค้า</th><th>สถานะ</th><th></th></tr></thead><tbody>
+        ${uoms.map(u=>{ const n = items.filter(i=>i.base_unit===u.uom_name).length + itemUoms.filter(x=>x.uom_name===u.uom_name).length;
+          return `<tr><td>${esc(u.uom_name)}</td><td class="muted">${n||''}</td><td>${u.is_active?'<span class="badge b-ok">ใช้งาน</span>':'<span class="badge">ปิด</span>'}</td>
+          <td style="text-align:right"><button class="ghost" data-tog="${u.uom_id}">${u.is_active?'ปิดใช้':'เปิดใช้'}</button>${n?'':`<button class="ghost" data-delu="${u.uom_id}" style="color:var(--bad)">ลบ</button>`}</td></tr>`; }).join('')}
+        </tbody></table></div></div>
+      <div class="card"><h3 style="font-size:16px;margin-bottom:12px">อัตราแปลงหน่วยของสินค้า</h3>
+        <label>สินค้า</label><select id="ci">${itemOptions(items)}</select>
+        <div id="conv" style="margin-top:12px"><div class="empty">เลือกสินค้า</div></div></div>
+    </div>`;
+  const reload = async (k) => { await loadMaster(); go('uom'); };
+  $('#addU').onclick = async () => {
+    const n = $('#nu').value.trim(); if (!n) return toast('กรอกชื่อหน่วย','bad');
+    const { error } = await sb.from('uom').insert({uom_name:n});
+    if (error) return toast(error.code==='23505'?'มีหน่วยนี้อยู่แล้ว':error.message,'bad'); toast('เพิ่มแล้ว','ok'); reload();
+  };
+  $('#ucard').addEventListener('click', async e => {
+    const tog = e.target.dataset.tog, del = e.target.dataset.delu;
+    if (tog) { const u = uoms.find(x=>x.uom_id==tog);
+      const { error } = await sb.from('uom').update({is_active:!u.is_active}).eq('uom_id', u.uom_id);
+      if (error) return toast(error.message,'bad'); reload(); }
+    if (del) { const { error } = await sb.from('uom').delete().eq('uom_id', +del);
+      if (error) return toast('ลบไม่ได้: หน่วยนี้ถูกใช้อยู่','bad'); toast('ลบแล้ว','ok'); reload(); }
+  });
+  const renderConv = () => {
+    const it = itemById(+$('#ci').value); if (!it) { $('#conv').innerHTML='<div class="empty">เลือกสินค้า</div>'; return; }
+    const cur = itemUoms.filter(x=>x.item_id===it.item_id);
+    $('#conv').innerHTML = `<div class="sub">หน่วยฐาน: <b>${esc(it.base_unit)}</b> · ยอดคงคลังเก็บเป็นหน่วยฐานเสมอ</div>
+      <table><thead><tr><th>หน่วย</th><th class="num">เท่ากับ</th><th></th></tr></thead><tbody>
+      ${cur.map(x=>`<tr><td>1 ${esc(x.uom_name)}</td><td class="num">${fmt(x.factor,2)} ${esc(it.base_unit)}</td><td style="text-align:right"><button class="ghost" data-delc="${esc(x.uom_name)}" style="color:var(--bad)">ลบ</button></td></tr>`).join('')}
+      <tr><td><select id="cu"><option value="">— หน่วย —</option>${uoms.filter(u=>u.is_active && u.uom_name!==it.base_unit && !cur.some(c=>c.uom_name===u.uom_name)).map(u=>`<option>${esc(u.uom_name)}</option>`).join('')}</select></td>
+      <td><input id="cf" type="number" step="any" min="0" placeholder="จำนวน ${esc(it.base_unit)}" style="text-align:right"></td><td><button class="pri" id="addC">เพิ่ม</button></td></tr></tbody></table>`;
+  };
+  $('#ci').onchange = renderConv;
+  $('#conv').addEventListener('click', async e => {
+    const it = itemById(+$('#ci').value); if (!it) return;
+    if (e.target.id==='addC') {
+      const rec = {item_id:it.item_id, uom_name:$('#cu').value, factor:Number($('#cf').value)};
+      if (!rec.uom_name || !(rec.factor>0)) return toast('เลือกหน่วยและใส่จำนวนมากกว่า 0','bad');
+      const { error } = await sb.from('item_uom').insert(rec);
+      if (error) return toast(error.message,'bad'); toast('เพิ่มแล้ว','ok'); await loadMaster(); renderConv();
+    }
+    if (e.target.dataset.delc) {
+      const { error } = await sb.from('item_uom').delete().eq('item_id', it.item_id).eq('uom_name', e.target.dataset.delc);
+      if (error) return toast(error.message,'bad'); await loadMaster(); renderConv();
+    }
+  });
 }
 
 boot();
