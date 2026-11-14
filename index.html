@@ -71,7 +71,7 @@ main{max-width:1150px;margin:0 auto;padding:20px}
 .clickrow{cursor:pointer}.clickrow:hover{background:var(--bg)}
 .sel{background:var(--pri-soft)!important}
 .note{background:var(--info-soft);color:var(--info);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px}
-.matrix td,.matrix th{text-align:center}.matrix td:first-child,.matrix th:first-child{text-align:left}
+.matrix td,.matrix th{text-align:center}.matrix select{min-width:150px}.matrix td:first-child,.matrix th:first-child{text-align:left}
 </style>
 </head>
 <body>
@@ -165,6 +165,7 @@ async function boot(){
     await sb.auth.signOut(); return;
   }
   me = prof;
+  me.reqStores = (await sb.rpc('my_req_stores')).data || [];
   await loadMaster();
   $('#login').style.display='none'; $('#app').style.display='block';
   $('#whoName').textContent = me.full_name;
@@ -400,21 +401,27 @@ async function setupStores(el){
 async function setupUsers(el){
   const roleSel = (id, v) => `<select ${id}>${ROLES.map(r=>`<option value="${r}" ${r===v?'selected':''}>${ROLE_SHORT[r]}</option>`).join('')}</select>`;
   const storeSel = (id, v) => `<select ${id}><option value="">— ไม่สังกัด —</option>${stores.map(s=>`<option value="${s.store_id}" ${s.store_id===v?'selected':''}>${esc(s.store_name)}</option>`).join('')}</select>`;
+  let users = [], extra = [];
   const draw = async () => {
-    const users = await must(sb.rpc('admin_list_users'));
-    el.innerHTML = `<div class="card"><h3 style="margin-bottom:4px">เพิ่มผู้ใช้</h3><div class="sub">Sub-stock User/Admin ต้องสังกัดคลังย่อย · ผู้ใช้เปลี่ยนรหัสผ่านเองได้ภายหลังจากปุ่มด้านบน</div>
+    [users, extra] = await Promise.all([must(sb.rpc('admin_list_users')), must(sb.from('profile_req_store').select('*'))]);
+    el.innerHTML = `<div class="card"><h3 style="margin-bottom:4px">เพิ่มผู้ใช้</h3><div class="sub">Sub-stock User/Admin ต้องสังกัดคลังย่อย · ผู้ใช้ใหม่ได้สิทธิ์ครบทุกรายการ ปรับได้ในตารางด้านล่าง</div>
       <div class="row"><div><label>อีเมล</label><input id="ue" type="email"></div><div><label>ชื่อ-สกุล</label><input id="un"></div>
       <div><label>บทบาท</label>${roleSel('id="ur"','requester')}</div><div><label>สังกัดคลัง</label>${storeSel('id="us"', subStores()[0]?.store_id)}</div>
       <div><label>รหัสผ่านเริ่มต้น</label><input id="up" type="text" placeholder="อย่างน้อย 8 ตัว"></div><div style="flex:0"><button class="pri" id="addU">เพิ่ม</button></div></div></div>
-      <div class="card"><h3 style="margin-bottom:12px">ผู้ใช้ทั้งหมด (${users.length})</h3><div style="overflow-x:auto">
-      <table><thead><tr><th>อีเมล</th><th>ชื่อ</th><th>บทบาท</th><th>สังกัดคลัง</th><th>ใช้งาน</th><th>เข้าล่าสุด</th><th></th></tr></thead><tbody>
-      ${users.map(u=>`<tr data-id="${u.user_id}"><td>${esc(u.email)}</td><td><input data-f="full_name" value="${esc(u.full_name||'')}" placeholder="ยังไม่มีโปรไฟล์"></td>
+      <div class="card"><h3 style="margin-bottom:4px">ผู้ใช้และสิทธิ์ (${users.length})</h3>
+      <div class="sub">สิทธิ์รับเข้า จ่ายออก โอน ตัดชำรุด ใช้กับคลังที่สังกัด · ขอเบิกได้ทั้งคลังที่สังกัด (ติ๊ก "ขอเบิก") และคลังอื่นที่เลือกเพิ่ม · ผู้ดูแลระบบมีสิทธิ์ทุกอย่าง</div>
+      <div style="overflow-x:auto"><table class="matrix"><thead><tr><th>ผู้ใช้</th><th>บทบาท</th><th>สังกัดคลัง</th>${PERMS.map(p=>`<th>${p[1]}</th>`).join('')}<th>ขอเบิกแทนคลังอื่น</th><th>ใช้งาน</th><th></th></tr></thead><tbody>
+      ${users.map(u=>{ const ex = extra.filter(x=>x.user_id===u.user_id).map(x=>x.store_id);
+        return `<tr data-id="${u.user_id}"><td style="text-align:left;min-width:190px"><input data-f="full_name" value="${esc(u.full_name||'')}" placeholder="ยังไม่มีโปรไฟล์"><div class="muted" style="font-size:12px;margin-top:2px">${esc(u.email)} · เข้าล่าสุด ${dt(u.last_sign_in_at)||'-'}</div></td>
         <td>${roleSel('data-f="role"', u.role||'requester')}</td><td>${storeSel('data-f="store_id"', u.store_id)}</td>
-        <td><input type="checkbox" data-f="is_active" ${u.is_active?'checked':''}></td><td class="muted" style="font-size:13px">${dt(u.last_sign_in_at)}</td>
-        <td style="white-space:nowrap"><button class="ghost" data-save="${u.user_id}" data-has="${u.role?1:0}">บันทึก</button><button class="ghost" data-pw="${u.user_id}">ตั้งรหัสใหม่</button></td></tr>`).join('')}
+        ${PERMS.map(p=>`<td><input type="checkbox" data-f="can_${p[0]}" ${u['can_'+p[0]]?'checked':''}></td>`).join('')}
+        <td style="text-align:left;min-width:170px"><button class="ghost" data-ex="${u.user_id}" ${u.role?'':'disabled title="บันทึกโปรไฟล์ก่อน"'}>${ex.length?ex.map(id=>esc(storeName(id))).join(', '):'— เลือก —'}</button></td>
+        <td><input type="checkbox" data-f="is_active" ${u.is_active?'checked':''}></td>
+        <td style="white-space:nowrap"><button class="ghost" data-save="${u.user_id}">บันทึก</button><button class="ghost" data-pw="${u.user_id}">ตั้งรหัสใหม่</button></td></tr>`; }).join('')}
       </tbody></table></div></div>`;
   };
   await draw();
+  const addRow = (tr, cls, html) => { const n = tr.nextElementSibling; if (n && n.classList.contains(cls)) { n.remove(); return; } tr.insertAdjacentHTML('afterend', `<tr class="${cls}"><td colspan="${5+PERMS.length+2}" style="text-align:left;background:var(--bg)">${html}</td></tr>`); };
   el.onclick = async e => {
     try {
       if (e.target.id==='addU') {
@@ -427,18 +434,29 @@ async function setupUsers(el){
       if (id) {
         const tr = el.querySelector(`tr[data-id="${id}"]`); const g = f => tr.querySelector(`[data-f="${f}"]`);
         const rec = {user_id:id, full_name:g('full_name').value.trim()||'-', role:g('role').value, store_id:g('store_id').value? +g('store_id').value : null, is_active:g('is_active').checked};
+        PERMS.forEach(p=>rec['can_'+p[0]] = g('can_'+p[0]).checked);
         if (['requester','unit_head'].includes(rec.role) && !rec.store_id) return toast('Sub-stock User/Admin ต้องเลือกคลังที่สังกัด','bad');
         if (id===me.user_id && (rec.role!=='admin' || !rec.is_active)) return toast('เปลี่ยนบทบาท/ปิดบัญชีของตัวเองไม่ได้ (กันล็อกตัวเองออก)','bad');
         await must(sb.from('profile').upsert(rec));
-        toast('บันทึกแล้ว','ok');
+        toast('บันทึกแล้ว','ok'); await draw();
+      }
+      const exid = e.target.dataset.ex;
+      if (exid) {
+        const cur = extra.filter(x=>x.user_id===exid).map(x=>x.store_id);
+        const u = users.find(x=>x.user_id===exid);
+        addRow(e.target.closest('tr'), 'exrow', `<div style="padding:4px 0 8px"><b>คลังที่ ${esc(u.full_name||u.email)} ขอเบิกแทนได้</b> <span class="muted" style="font-size:13px">(นอกจากคลังที่สังกัด)</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px 18px">${subStores().filter(s=>s.store_id!==u.store_id).map(s=>`<label style="margin:0;color:var(--ink)"><input type="checkbox" class="exs" value="${s.store_id}" ${cur.includes(s.store_id)?'checked':''}> ${esc(s.store_name)}</label>`).join('') || '<span class="muted">ไม่มีคลังอื่น</span>'}</div>
+          <div style="margin-top:10px"><button class="pri" data-exsave="${exid}">บันทึกคลังที่ขอเบิกได้</button></div>`);
+      }
+      const exs = e.target.dataset.exsave;
+      if (exs) {
+        const sel = [...e.target.closest('tr').querySelectorAll('.exs:checked')].map(x=>+x.value);
+        await must(sb.from('profile_req_store').delete().eq('user_id', exs));
+        if (sel.length) await must(sb.from('profile_req_store').insert(sel.map(sid=>({user_id:exs, store_id:sid}))));
+        toast('บันทึกแล้ว','ok'); await draw();
       }
       const pid = e.target.dataset.pw;
-      if (pid) {
-        const tr = e.target.closest('tr');
-        if (!tr.nextElementSibling || !tr.nextElementSibling.classList.contains('pwrow')) {
-          tr.insertAdjacentHTML('afterend', `<tr class="pwrow"><td colspan="7"><div class="row"><div><label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</label><input id="pw-${pid}" type="text"></div><div style="flex:0"><button class="pri" data-pwsave="${pid}">ตั้งรหัส</button></div></div></td></tr>`);
-        }
-      }
+      if (pid) addRow(e.target.closest('tr'), 'pwrow', `<div class="row"><div><label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</label><input id="pw-${pid}" type="text"></div><div style="flex:0"><button class="pri" data-pwsave="${pid}">ตั้งรหัส</button></div></div>`);
       const ps = e.target.dataset.pwsave;
       if (ps) { await must(sb.rpc('admin_set_password', {p_user_id:ps, p_password:document.getElementById('pw-'+ps).value})); toast('ตั้งรหัสผ่านใหม่แล้ว','ok'); e.target.closest('tr').remove(); }
     } catch(err){ toast(errMsg(err),'bad'); }
@@ -462,13 +480,29 @@ async function setupPerms(el){
 // 2) REQUISITION & RECEIVING
 // =====================================================================
 async function pageReq(){
-  const my = curStore();
-  const pick = !me.store_id ? `<div class="card"><label>ทำรายการในนามคลัง</label>${storePicker('actStore', subStores(), my)}</div>` : '';
+  const my = reqStore(); const list = reqStoreList();
+  const own = isAdmin() || my === me.store_id;
+  const canReqHere = isAdmin() || (me.reqStores||[]).includes(my);
+  const T = [];
+  if (canReqHere) T.push(['new','สร้างใบเบิก']);
+  if (own && can('recv')) T.push(['in','รับเข้า'],['trf','รับของโอน']);
+  T.push(['hist','ประวัติการเบิก']);
+  const pick = list.length > 1 ? `<div class="card"><label>${isAdmin()?'ทำรายการในนามคลัง':'คลังที่ขอเบิก (คุณมีสิทธิ์ขอเบิกได้ '+list.length+' คลัง)'}</label>${storePicker('actStore', list, my)}
+      ${!own?'<div class="muted" style="font-size:13px;margin-top:6px">คลังนี้ไม่ใช่คลังที่คุณสังกัด จึงสร้างใบเบิกและดูประวัติได้อย่างเดียว การรับเข้าให้เจ้าหน้าที่ของคลังนั้นทำ</div>':''}</div>` : '';
   $('#view').innerHTML = `<h2>ขอเบิกและรับเข้าคลังย่อย</h2><div class="sub">${esc(storeName(my))} · ใบเบิกส่งถึงคลังใหญ่ (ระบบภายนอก) · เมื่อได้ของให้ทำรายการรับเข้าพร้อมราคา</div>${pick}`
-    + tabs([['new','สร้างใบเบิก'],['in','รับเข้า'],['trf','รับของโอน'],['hist','ประวัติการเบิก']], (k,el)=>({new:reqNew,in:reqRecvIn,trf:reqReceive,hist:reqHistory})[k](el, curStore()));
-  if ($('#actStore')) $('#actStore').onchange = () => { window._act = +$('#actStore').value; go('req'); };
+    + tabs(T, (k,el)=>({new:reqNew,in:reqRecvIn,trf:reqReceive,hist:reqHistory})[k](el, my));
+  if ($('#actStore')) $('#actStore').onchange = () => { window._reqAct = window._act = +$('#actStore').value; go('req'); };
 }
 function curStore(){ return me.store_id || window._act || subStores()[0]?.store_id; }
+const isAdmin = () => me.role === 'admin';
+const can = k => isAdmin() || !!me['can_'+k];
+const PERMS = [['req','ขอเบิก'],['recv','รับเข้า'],['disp','จ่ายออก'],['trf','โอน'],['exp','ตัดชำรุด/หมดอายุ']];
+function reqStoreList(){ return isAdmin() ? subStores() : subStores().filter(s=>(me.reqStores||[]).includes(s.store_id) || s.store_id===me.store_id); }
+function reqStore(){
+  const L = reqStoreList().map(s=>s.store_id);
+  if (window._reqAct && L.includes(window._reqAct)) return window._reqAct;
+  return me.store_id && L.includes(me.store_id) ? me.store_id : (L[0] || me.store_id);
+}
 const boundItems = sid => items.filter(i=>i.is_active && storeItems.some(x=>x.store_id===sid && x.item_id===i.item_id));
 const avgCost = (sid, iid) => Number(storeItems.find(x=>x.store_id===sid && x.item_id===iid)?.avg_cost || 0);
 function noItemsMsg(){ return `<div class="card empty">ยังไม่มีสินค้าผูกกับคลังนี้ · ${canPage('master')?'เพิ่มได้ที่เมนู "สินค้าประจำคลัง"':'ติดต่อผู้ดูแลคลังย่อย'}</div>`; }
@@ -571,7 +605,8 @@ async function pageDisp(){
   const my = curStore();
   const pick = !me.store_id ? `<div class="card"><label>ทำรายการในนามคลัง</label>${storePicker('actStore', subStores(), my)}</div>` : '';
   $('#view').innerHTML = `<h2>ตัดจ่ายและโอนย้าย</h2><div class="sub">${esc(storeName(my))}</div>${pick}`
-    + tabs([['use','จ่ายผู้ป่วย/ตัดใช้'],['trf','โอนไปคลังย่อยอื่น'],['exp','ชำรุด/หมดอายุ']], (k,el)=>dispForm(el, my, k));
+    + (()=>{ const T=[['use','จ่ายผู้ป่วย/ตัดใช้','disp'],['trf','โอนไปคลังย่อยอื่น','trf'],['exp','ชำรุด/หมดอายุ','exp']].filter(x=>can(x[2])).map(x=>[x[0],x[1]]);
+         return T.length ? tabs(T, (k,el)=>dispForm(el, my, k)) : '<div class="card empty">คุณยังไม่ได้รับสิทธิ์จ่ายออก โอน หรือตัดชำรุด กรุณาติดต่อผู้ดูแลระบบ</div>'; })();
   if ($('#actStore')) $('#actStore').onchange = () => { window._act = +$('#actStore').value; go('disp'); };
 }
 async function dispForm(el, my, kind){
