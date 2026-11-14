@@ -116,7 +116,7 @@ const STATUS_TH = {DRAFT:'ร่าง',SUBMIT:'รออนุมัติ',APP
 const STATUS_CLS = {SUBMIT:'b-warn',APPROVE:'b-ok',SHIPPED:'b-info',CANCEL:'b-bad'};
 const ITEMTYPE_TH = {DRUG:'ยา',MEDSUP:'เวชภัณฑ์',OFFICE:'วัสดุสำนักงาน'};
 
-let me = null, stores = [], items = [], storeItems = [], uoms = [], itemUoms = [], rolePages = [];
+let me = null, vendors = [], stores = [], items = [], storeItems = [], uoms = [], itemUoms = [], rolePages = [];
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (n, d) => { d = typeof d === 'number' ? d : 0; return Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:d,maximumFractionDigits:d}); };
@@ -173,15 +173,16 @@ async function boot(){
   buildNav();
 }
 async function loadMaster(){
-  const [s,i,si,u,iu,rp] = await Promise.all([
+  const [s,i,si,u,iu,rp,vd] = await Promise.all([
     sb.from('store').select('*').order('store_type').order('store_name'),
     sb.from('item').select('*').order('item_name'),
     sb.from('store_item').select('*'),
     sb.from('uom').select('*').order('uom_name'),
     sb.from('item_uom').select('*'),
     sb.from('role_page').select('*'),
+    sb.from('vendor').select('*').order('vendor_name'),
   ]);
-  stores = s.data||[]; items = i.data||[]; storeItems = si.data||[]; uoms = u.data||[]; itemUoms = iu.data||[]; rolePages = rp.data||[];
+  stores = s.data||[]; items = i.data||[]; storeItems = si.data||[]; uoms = u.data||[]; itemUoms = iu.data||[]; rolePages = rp.data||[]; vendors = vd.data||[];
 }
 
 // ---------- nav ----------
@@ -199,7 +200,7 @@ const PAGES = {
 const PAGE_DESC = {
   dash:'ภาพรวมมูลค่า หมดอายุ ต่ำกว่า Min', req:'สร้างใบเบิก รับเข้าพร้อมราคา รับของโอน ประวัติการเบิก', disp:'จ่ายผู้ป่วย โอนระหว่างคลังย่อย ชำรุด/หมดอายุ',
   approve:'อนุมัติใบเบิก โอน ตัดชำรุด ปรับยอด',
-  card:'บัญชีคุมคลัง ยอดคงเหลือ ความเคลื่อนไหว', alert:'ใกล้หมดอายุ ต่ำกว่า Min รอรับเข้า', master:'สินค้าที่ผูกกับคลัง Min/Max ราคาทุนเฉลี่ย',
+  card:'บัญชีคุมคลัง ยอดคงเหลือ ความเคลื่อนไหว', alert:'ใกล้หมดอายุ ต่ำกว่า Min รอรับเข้า', master:'สินค้าที่ผูกกับคลัง Min/Max ราคาทุนเฉลี่ย บริษัทผู้ขาย',
   uom:'หน่วยนับและอัตราแปลง', setup:'คลัง/หน่วยงาน ผู้ใช้ สิทธิ์หน้าจอ'};
 const canPage = (k, role=me.role) => (role==='admin' && k==='setup') || rolePages.some(r=>r.role===role && r.page_key===k && r.allowed);
 let current = null;
@@ -359,7 +360,10 @@ function linesTable(lines){
   return tbl(lines.map(l=>({...l, name:itemById(l.item_id)?.item_name, unit:itemById(l.item_id)?.base_unit})),
     [['name','รายการ'],['qty','จำนวน',fmt,1],['unit','หน่วย'],['lot_no','Lot',v=>esc(v||'')],['hn','HN',v=>esc(v||'')],['an','AN',v=>esc(v||'')]]);
 }
-function docHead(t){ return `<h3>${TYPE_TH[t.txn_type]} ${esc(t.txn_no)}</h3><div class="sub">${statusBadge(t.status)} · ${t.from_store_id?esc(storeName(t.from_store_id)):'คลังใหญ่ (ภายนอก)'}${t.to_store_id?' → '+esc(storeName(t.to_store_id)):''} · ${dtt(t.txn_date)}${t.remark?'<br>หมายเหตุ: '+esc(t.remark):''}</div>`; }
+function docHead(t){ const v = vendors.find(x=>x.vendor_id===t.vendor_id);
+  return `<h3>${TYPE_TH[t.txn_type]} ${esc(t.txn_no)}</h3><div class="sub">${statusBadge(t.status)} · ${route(t)} · ${dtt(t.txn_date)}`
+    + (v?`<br>บริษัท: ${esc(v.vendor_name)}`:'') + (t.ref_doc_no?`<br>เอกสารอ้างอิง: ${esc(t.ref_doc_no)}${t.ref_doc_date?' ลงวันที่ '+dt(t.ref_doc_date):''}`:'')
+    + (t.remark?'<br>หมายเหตุ: '+esc(t.remark):'') + `</div>`; }
 
 // =====================================================================
 // 1) SETUP & ACCESS
@@ -543,7 +547,11 @@ async function reqRecvIn(el, my){
     const init = t ? (await txnLines(t.txn_id)).map(l=>({item_id:l.item_id, qty:l.qty, uom:itemById(l.item_id)?.base_unit, unit_cost:''})) : null;
     $('#det').innerHTML = (t ? docHead(t) : '<h3>รับเข้าโดยไม่อ้างอิงใบเบิก</h3><div class="sub">เช่น ได้ของเพิ่มเติม หรือใบเบิกจากระบบเดิม</div>')
       + `<div class="note">ต้องใส่ Lot วันหมดอายุ และราคาต่อหน่วยทุกรายการ · ระบบจะคำนวณราคาทุนเฉลี่ยของคลังใหม่ให้อัตโนมัติ</div>
-      <div class="row" style="margin-bottom:12px"><div><label>เลขที่ใบจ่ายจากคลังใหญ่ / หมายเหตุ</label><input id="rrem"></div></div>
+      <div class="row" style="margin-bottom:12px">
+        <div style="flex:2"><label>บริษัทผู้ขาย</label><select id="rven"><option value="">— ไม่ระบุ / รับจากคลังใหญ่ —</option>${vendors.filter(v=>v.is_active).map(v=>`<option value="${v.vendor_id}">${esc(v.vendor_name)} (${esc(v.vendor_code)})</option>`).join('')}</select></div>
+        <div><label>เลขที่เอกสารอ้างอิง (ใบรับของ/ใบส่งของ)</label><input id="rdoc" placeholder="เช่น DO-2569/0123"></div>
+        <div><label>วันที่เอกสาร</label><input id="rdate" type="date"></div></div>
+      <div class="row" style="margin-bottom:12px"><div><label>หมายเหตุ</label><input id="rrem"></div></div>
       <div id="lines"></div><div style="margin-top:16px;text-align:right"><button class="pri" id="save">บันทึกรับเข้า</button></div>`;
     const ed = lineEditor($('#lines'), {itemList:()=>boundItems(my), initial:init, cols:['uom','lot','exp','cost','info'],
       info:r=> r.item_id ? `ทุนเฉลี่ยเดิม ${baht(avgCost(my, +r.item_id))}` : ''});
@@ -553,7 +561,8 @@ async function reqRecvIn(el, my){
       if (lines.some(l=>itemById(l.item_id)?.item_type!=='OFFICE' && !l.exp_date)) return toast('ยาและเวชภัณฑ์ต้องระบุวันหมดอายุ','bad');
       if (lines.some(l=>!(l.unit_cost>0))) return toast('ต้องใส่ราคาต่อหน่วยทุกรายการ','bad');
       $('#save').disabled = true;
-      try { await createTxn({txn_type:'RECV', to_store_id:my, ref_txn_id:t?.txn_id||null, status:'DRAFT', remark:$('#rrem').value||null}, lines, true);
+      try { await createTxn({txn_type:'RECV', to_store_id:my, ref_txn_id:t?.txn_id||null, status:'DRAFT', remark:$('#rrem').value||null,
+              vendor_id: $('#rven').value? +$('#rven').value : null, ref_doc_no: $('#rdoc').value.trim()||null, ref_doc_date: $('#rdate').value||null}, lines, true);
         await loadMaster(); toast('รับเข้าแล้ว','ok'); go('req'); }
       catch(e){ toast(errMsg(e),'bad'); $('#save').disabled=false; }
     };
@@ -687,7 +696,7 @@ async function repCard(el){
       ${tbl(rows.slice().reverse(), [['movement_date','วันที่',dtt],['txn_no','เลขที่'],['txn_type','ประเภท',v=>TYPE_TH[v]],
         ['other_store_id','จาก/ถึง',v=>v?esc(storeName(v)):''],['lot_no','Lot'],['exp_date','หมดอายุ',dt],
         ['qty','รับ',v=>v>0?`<span class="in">${fmt(v)}</span>`:'',1],['qty','จ่าย',v=>v<0?`<span class="out">${fmt(-v)}</span>`:'',1],['balance','คงเหลือ',v=>`<b>${fmt(v)}</b>`,1],
-        ['hn','HN/AN',(v,r)=>esc([r.hn,r.an].filter(Boolean).join(' / '))],['remark','หมายเหตุ',v=>esc(v||'')]], {empty:'ไม่มีความเคลื่อนไหว'})}`;
+        ['hn','HN/AN',(v,r)=>esc([r.hn,r.an].filter(Boolean).join(' / '))],['ref_doc_no','เอกสารอ้างอิง',(v,r)=>esc([v,r.vendor_name].filter(Boolean).join(' · '))],['remark','หมายเหตุ',v=>esc(v||'')]], {empty:'ไม่มีความเคลื่อนไหว'})}`;
   };
   $('#cs').onchange = load; $('#ci').onchange = load;
 }
@@ -716,7 +725,7 @@ async function repMove(el){
     const tin = rows.filter(r=>r.qty>0).reduce((a,r)=>a+Number(r.value),0), tout = rows.filter(r=>r.qty<0).reduce((a,r)=>a-Number(r.value),0);
     $('#mres').innerHTML = `<div class="kpis"><div class="kpi"><div class="l">มูลค่ารับเข้า</div><div class="v in">${baht(tin)}</div></div><div class="kpi"><div class="l">มูลค่าจ่ายออก</div><div class="v out">${baht(tout)}</div></div><div class="kpi"><div class="l">จำนวนรายการ</div><div class="v">${fmt(rows.length)}</div></div></div>`
       + tbl(rows.map(r=>({...r, name:itemById(r.item_id)?.item_name})), [['movement_date','วันที่',dtt],['txn_no','เลขที่'],['txn_type','ประเภท',v=>TYPE_TH[v]],['name','รายการ'],['lot_no','Lot'],
-        ['qty','จำนวน',v=>`<span class="${v>0?'in':'out'}">${v>0?'+':''}${fmt(v)}</span>`,1],['value','มูลค่า',baht,1],['other_store_id','จาก/ถึง',v=>v?esc(storeName(v)):'']]);
+        ['qty','จำนวน',v=>`<span class="${v>0?'in':'out'}">${v>0?'+':''}${fmt(v)}</span>`,1],['value','มูลค่า',baht,1],['other_store_id','จาก/ถึง',v=>v?esc(storeName(v)):''],['ref_doc_no','เอกสารอ้างอิง',(v,r)=>esc([v,r.vendor_name].filter(Boolean).join(' · '))]]);
   };
   $('#mgo').onclick = load; load();
 }
@@ -806,9 +815,9 @@ async function pageDash(){
 async function pageMaster(){
   const canEdit = ['unit_head','admin'].includes(me.role);
   const list = sees() ? subStores() : subStores().filter(s=>s.store_id===me.store_id);
-  const tabsList = [['bind','สินค้าประจำคลัง']]; if (me.role==='admin') tabsList.push(['cat','ทะเบียนกลาง']);
+  const tabsList = [['bind','สินค้าประจำคลัง'],['vendor','บริษัทผู้ขาย']]; if (me.role==='admin') tabsList.push(['cat','ทะเบียนกลาง']);
   $('#view').innerHTML = `<h2>สินค้าประจำคลัง</h2><div class="sub">สินค้าต้องผูกกับคลังก่อนจึงเบิก รับ จ่าย โอนได้ · Min/Max แยกแต่ละคลัง · ราคาทุนเฉลี่ยระบบคำนวณจากการรับเข้า</div>`
-    + tabs(tabsList, (k,el)=> k==='bind' ? masterBind(el, list, canEdit) : masterCatalog(el));
+    + tabs(tabsList, (k,el)=> k==='bind' ? masterBind(el, list, canEdit) : k==='vendor' ? masterVendor(el, canEdit) : masterCatalog(el));
 }
 async function masterBind(el, list, canEdit){
   el.innerHTML = `<div class="card"><div class="row"><div><label>คลังย่อย</label>${storePicker('ms', list, curStore())}</div><div></div></div></div><div id="mm"></div>`;
@@ -863,6 +872,40 @@ async function masterBind(el, list, canEdit){
         await must(sb.from('store_item').update({min_qty:v('min_qty'), max_qty:v('max_qty')}).eq('store_id',sid).eq('item_id',iid)); toast('บันทึกแล้ว','ok'); await loadMaster();
       }
       if (e.target.dataset.rm) { await must(sb.from('store_item').delete().eq('store_id',sid).eq('item_id',+e.target.dataset.rm)); toast('เอาออกแล้ว','ok'); await loadMaster(); render(); }
+    } catch(err){ toast(errMsg(err),'bad'); }
+  };
+}
+async function masterVendor(el, canEdit){
+  const draw = () => {
+    el.innerHTML = (canEdit ? `<div class="card"><h3 style="margin-bottom:12px">เพิ่มบริษัทผู้ขาย</h3>
+      <div class="row"><div><label>รหัส</label><input id="vc" placeholder="เช่น V001"></div><div style="flex:3"><label>ชื่อบริษัท</label><input id="vn"></div>
+      <div><label>เลขผู้เสียภาษี</label><input id="vt"></div><div><label>โทรศัพท์</label><input id="vp"></div><div><label>ผู้ติดต่อ</label><input id="vx"></div>
+      <div style="flex:0"><button class="pri" id="addV">เพิ่ม</button></div></div></div>` : '')
+      + `<div class="card"><h3 style="margin-bottom:12px">บริษัทผู้ขาย (${vendors.length})</h3><div style="overflow-x:auto">
+      <table><thead><tr><th>รหัส</th><th>ชื่อบริษัท</th><th>เลขผู้เสียภาษี</th><th>โทรศัพท์</th><th>ผู้ติดต่อ</th><th>ใช้งาน</th>${canEdit?'<th></th>':''}</tr></thead><tbody>
+      ${vendors.map(v=> canEdit ? `<tr data-id="${v.vendor_id}"><td>${esc(v.vendor_code)}</td><td><input data-f="vendor_name" value="${esc(v.vendor_name)}"></td>
+        <td><input data-f="tax_id" value="${esc(v.tax_id||'')}"></td><td><input data-f="phone" value="${esc(v.phone||'')}"></td><td><input data-f="contact" value="${esc(v.contact||'')}"></td>
+        <td><input type="checkbox" data-f="is_active" ${v.is_active?'checked':''}></td><td><button class="ghost" data-save="${v.vendor_id}">บันทึก</button></td></tr>`
+        : `<tr><td>${esc(v.vendor_code)}</td><td>${esc(v.vendor_name)}</td><td>${esc(v.tax_id||'')}</td><td>${esc(v.phone||'')}</td><td>${esc(v.contact||'')}</td><td>${v.is_active?'ใช้งาน':'ปิด'}</td></tr>`).join('')
+        || '<tr><td colspan="7" class="empty">ยังไม่มีบริษัทผู้ขาย</td></tr>'}
+      </tbody></table></div></div>`;
+  };
+  draw();
+  el.onclick = async e => {
+    try {
+      if (e.target.id==='addV') {
+        const rec = {vendor_code:$('#vc').value.trim(), vendor_name:$('#vn').value.trim(), tax_id:$('#vt').value.trim()||null, phone:$('#vp').value.trim()||null, contact:$('#vx').value.trim()||null};
+        if (!rec.vendor_code || !rec.vendor_name) return toast('กรอกรหัสและชื่อบริษัท','bad');
+        const { error } = await sb.from('vendor').insert(rec);
+        if (error) return toast(error.code==='23505'?'รหัสนี้มีแล้ว':error.message,'bad');
+        toast('เพิ่มแล้ว','ok'); await loadMaster(); draw();
+      }
+      const id = e.target.dataset.save;
+      if (id) {
+        const tr = e.target.closest('tr'); const g = f => tr.querySelector(`[data-f="${f}"]`);
+        await must(sb.from('vendor').update({vendor_name:g('vendor_name').value.trim(), tax_id:g('tax_id').value.trim()||null, phone:g('phone').value.trim()||null, contact:g('contact').value.trim()||null, is_active:g('is_active').checked}).eq('vendor_id', +id));
+        toast('บันทึกแล้ว','ok'); await loadMaster();
+      }
     } catch(err){ toast(errMsg(err),'bad'); }
   };
 }
