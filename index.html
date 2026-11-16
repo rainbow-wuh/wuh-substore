@@ -531,10 +531,11 @@ async function setupPerms(el){
 async function pageReq(){
   const my = reqStore(); const list = reqStoreList();
   const canReqHere = isAdmin() || (me.reqStores||[]).includes(my);
-  const T = []; if (canReqHere) T.push(['new','สร้างใบเบิก']); T.push(['hist','ประวัติการเบิก']);
+  const T = []; if (canReqHere) T.push(['new','สร้างใบเบิก']); T.push(['bal','ยอดคงเหลือและจุดสั่งเบิก'],['hist','ประวัติการเบิก']);
+  const start = T.some(t=>t[0]===window._reqTab) ? window._reqTab : undefined; window._reqTab = null;
   const pick = list.length > 1 ? `<div class="card"><label>${isAdmin()?'ทำรายการในนามคลัง':'คลังที่ขอเบิก (คุณมีสิทธิ์ขอเบิกได้ '+list.length+' คลัง)'}</label>${storePicker('actStore', list, my)}</div>` : '';
   $('#view').innerHTML = `<h2>ใบเบิก</h2><div class="sub">${esc(storeName(my))} · ใบเบิกส่งถึงคลังใหญ่ (ระบบภายนอก) · ได้ของแล้วให้บันทึกที่เมนู "รับเข้า"</div>${pick}`
-    + tabs(T, (k,el)=>({new:reqNew,hist:reqHistory})[k](el, my));
+    + tabs(T, (k,el)=>({new:reqNew,bal:reqBal,hist:reqHistory})[k](el, my), start);
   if ($('#actStore')) $('#actStore').onchange = () => { window._reqAct = +$('#actStore').value; go('req'); };
 }
 async function pageRcv(){
@@ -579,15 +580,14 @@ async function reqNew(el, my){
   const bal = sumByItem(await balanceRows(my));
   const low = await must(sb.from('v_below_min').select('*').eq('store_id', my));
   el.innerHTML = `
-    <div class="card"><h3>ยอดคงเหลือและจุดสั่งเบิก</h3><div class="sub">ควรเบิก = Max − คงเหลือ เมื่อต่ำกว่า Min</div>
-      ${tbl(allowed.map(a=>{ const it=itemById(a.item_id); const b=bal[a.item_id]||0; return {...a, name:it?.item_name, unit:it?.base_unit, bal:b, need: b<a.min_qty ? a.max_qty-b : 0}; }).sort((x,y)=>(y.need>0)-(x.need>0)),
-        [['name','รายการ'],['bal','คงเหลือ',(v,r)=>`<b style="color:${v<r.min_qty?'var(--bad)':'inherit'}">${fmt(v)}</b>`,1],['min_qty','Min',fmt,1],['max_qty','Max',fmt,1],['need','ควรเบิก',v=>v?`<span class="badge b-warn">${fmt(v)}</span>`:'',1],['unit','หน่วย']])}
-      ${low.length?`<div style="margin-top:12px"><button class="pri" id="fill">ใส่ ${low.length} รายการที่ควรเบิกลงใบเบิก</button></div>`:''}</div>
+    ${low.length?`<div class="card" style="background:var(--warn-soft);border-color:#f3dcb4;display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><b>${low.length} รายการต่ำกว่า Min</b> <span class="muted">ระบบเสนอจำนวนเบิกให้เต็ม Max · ดูรายละเอียดที่แท็บ "ยอดคงเหลือและจุดสั่งเบิก"</span></div><button class="pri" id="fill">ใส่รายการที่ควรเบิก</button></div>`:''}
     <div class="card"><h3 style="margin-bottom:12px">ใบเบิกถึงคลังใหญ่</h3><div id="lines"></div>
       <div style="margin-top:12px"><label>หมายเหตุ / เลขที่ใบเบิกในระบบคลังใหญ่ (ถ้ามี)</label><input id="remark"></div>
       <div style="margin-top:16px;text-align:right"><button class="pri" id="send">ส่งใบเบิก (รอผู้ดูแลคลังย่อยอนุมัติ)</button></div></div>`;
   const ed = lineEditor($('#lines'), {itemList:()=>boundItems(my), cols:['info'], info:r=>{ if(!r.item_id) return ''; const a=allowed.find(x=>x.item_id==r.item_id); return `คงเหลือ ${fmt(bal[+r.item_id]||0)}${a?` · Min ${fmt(a.min_qty)} / Max ${fmt(a.max_qty)}`:''}`; }});
-  if ($('#fill')) $('#fill').onclick = () => ed.set(low.map(l=>({item_id:l.item_id, qty:l.suggest_req_qty})));
+  const fill = () => ed.set(low.map(l=>({item_id:l.item_id, qty:l.suggest_req_qty})));
+  if ($('#fill')) $('#fill').onclick = fill;
+  if (window._reqPrefill) { window._reqPrefill = false; fill(); }
   $('#send').onclick = async () => {
     const lines = ed.get(); if (!lines.length) return toast('ยังไม่มีรายการ','bad');
     $('#send').disabled = true;
@@ -595,6 +595,34 @@ async function reqNew(el, my){
       toast('ส่งใบเบิก '+t.txn_no+' แล้ว','ok'); go('req'); }
     catch(e){ toast(errMsg(e),'bad'); $('#send').disabled=false; }
   };
+}
+async function reqBal(el, my){
+  const allowed = storeItems.filter(x=>x.store_id===my);
+  if (!allowed.length) { el.innerHTML = noItemsMsg(); return; }
+  const bal = sumByItem(await balanceRows(my));
+  const pending = await must(sb.from('stock_txn').select('txn_id').eq('txn_type','REQ').eq('to_store_id', my).in('status',['SUBMIT','APPROVE']));
+  const pend = {}; if (pending.length) (await must(sb.from('stock_txn_line').select('item_id,qty').in('txn_id', pending.map(t=>t.txn_id)))).forEach(l=>pend[l.item_id]=(pend[l.item_id]||0)+Number(l.qty));
+  const rows = allowed.map(a=>{ const it=itemById(a.item_id); const b=bal[a.item_id]||0; const need = b<a.min_qty ? a.max_qty-b : 0;
+    return {...a, code:it?.item_code, name:it?.item_name, unit:it?.base_unit, bal:b, pend:pend[a.item_id]||0, need,
+      st: b<=0 ? 'หมด' : b<a.min_qty ? 'ต่ำกว่า Min' : b>a.max_qty ? 'เกิน Max' : 'ปกติ'}; })
+    .sort((x,y)=>(y.need>0)-(x.need>0) || (x.name||'').localeCompare(y.name||'','th'));
+  const nLow = rows.filter(r=>r.need>0).length;
+  const canReqHere = isAdmin() || (me.reqStores||[]).includes(my);
+  el.innerHTML = `<div class="card"><div class="row" style="align-items:center">
+      <div><label>ค้นหา</label><input id="bq" placeholder="ชื่อหรือรหัส"></div>
+      <div style="min-width:180px"><label style="margin-top:22px"><input type="checkbox" id="bonly"> เฉพาะที่ควรเบิก (${nLow})</label></div>
+      <div style="flex:0 0 auto;min-width:0">${nLow && canReqHere ? `<button class="pri" id="mk" style="margin-top:20px;white-space:nowrap">สร้างใบเบิกจาก ${nLow} รายการที่ควรเบิก</button>`:''}</div></div></div>
+    <div class="card"><div class="sub">ควรเบิก = Max − คงเหลือ เมื่อคงเหลือต่ำกว่า Min · "เบิกค้าง" คือจำนวนในใบเบิกที่ยังไม่ได้รับของ</div><div id="bt"></div></div>`;
+  const cls = {'หมด':'b-bad','ต่ำกว่า Min':'b-warn','เกิน Max':'b-info','ปกติ':'b-ok'};
+  const draw = () => {
+    const q = $('#bq').value.trim().toLowerCase(), only = $('#bonly').checked;
+    $('#bt').innerHTML = tbl(rows.filter(r=>(!only || r.need>0) && (!q || (r.name||'').toLowerCase().includes(q) || (r.code||'').toLowerCase().includes(q))),
+      [['code','รหัส'],['name','รายการ'],['bal','คงเหลือ',(v,r)=>`<b style="color:${v<r.min_qty?'var(--bad)':'inherit'}">${fmt(v)}</b>`,1],['min_qty','Min',fmt,1],['max_qty','Max',fmt,1],
+       ['pend','เบิกค้าง',v=>v?fmt(v):'',1],['need','ควรเบิก',v=>v?`<span class="badge b-warn">${fmt(v)}</span>`:'',1],['unit','หน่วย'],['st','สถานะ',v=>`<span class="badge ${cls[v]}">${v}</span>`]],
+      {empty:'ไม่มีรายการ'});
+  };
+  $('#bq').oninput = draw; $('#bonly').onchange = draw; draw();
+  if ($('#mk')) $('#mk').onclick = () => { window._reqPrefill = true; window._reqTab = 'new'; go('req'); };
 }
 async function reqRecvIn(el, my){
   if (!storeItems.some(x=>x.store_id===my)) { el.innerHTML = noItemsMsg(); return; }
