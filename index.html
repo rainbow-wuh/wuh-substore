@@ -232,7 +232,8 @@ async function loadMaster(){
 // ---------- nav ----------
 const PAGES = {
   dash:    {t:'Dashboard',              fn:pageDash},
-  req:     {t:'ขอเบิกและรับเข้า',        fn:pageReq},
+  req:     {t:'ใบเบิก',                 fn:pageReq},
+  rcv:     {t:'รับเข้า',                fn:pageRcv},
   disp:    {t:'ตัดจ่ายและโอนย้าย',       fn:pageDisp},
   approve: {t:'อนุมัติ',                fn:pageApprove},
   card:    {t:'Stock Card และรายงาน',    fn:pageCard},
@@ -242,7 +243,7 @@ const PAGES = {
   setup:   {t:'Setup & Access',         fn:pageSetup},
 };
 const PAGE_DESC = {
-  dash:'ภาพรวมมูลค่า หมดอายุ ต่ำกว่า Min', req:'สร้างใบเบิก รับเข้าพร้อมราคา รับของโอน ประวัติการเบิก', disp:'จ่ายผู้ป่วย โอนระหว่างคลังย่อย ชำรุด/หมดอายุ',
+  dash:'ภาพรวมมูลค่า หมดอายุ ต่ำกว่า Min', req:'สร้างใบเบิกถึงคลังใหญ่ ประวัติการเบิก', rcv:'รับเข้าตามใบเบิกพร้อมราคา รับของโอน ประวัติการรับ', disp:'จ่ายผู้ป่วย โอนระหว่างคลังย่อย ชำรุด/หมดอายุ',
   approve:'อนุมัติใบเบิก โอน ตัดชำรุด ปรับยอด',
   card:'บัญชีคุมคลัง ยอดคงเหลือ ความเคลื่อนไหว', alert:'ใกล้หมดอายุ ต่ำกว่า Min รอรับเข้า', master:'สินค้าที่ผูกกับคลัง Min/Max ราคาทุนเฉลี่ย บริษัทผู้ขาย',
   uom:'หน่วยนับและอัตราแปลง', setup:'คลัง/หน่วยงาน ผู้ใช้ สิทธิ์หน้าจอ'};
@@ -271,7 +272,7 @@ async function refreshDots(){
     const { data } = await sb.from('stock_txn').select('txn_id,txn_type,status,from_store_id,to_store_id,created_by').in('status',['SUBMIT','SHIPPED','APPROVE']);
     const L = data||[];
     setDot('approve', L.filter(t=>t.status==='SUBMIT' && canApprove(t)).length);
-    setDot('req', L.filter(t=>t.to_store_id===me.store_id && (t.status==='SHIPPED' || (t.status==='APPROVE' && t.txn_type==='REQ'))).length);
+    setDot('rcv', L.filter(t=>t.to_store_id===me.store_id && (t.status==='SHIPPED' || (t.status==='APPROVE' && t.txn_type==='REQ'))).length);
   } catch(_){}
 }
 function canApprove(t){
@@ -529,17 +530,35 @@ async function setupPerms(el){
 // =====================================================================
 async function pageReq(){
   const my = reqStore(); const list = reqStoreList();
-  const own = isAdmin() || my === me.store_id;
   const canReqHere = isAdmin() || (me.reqStores||[]).includes(my);
-  const T = [];
-  if (canReqHere) T.push(['new','สร้างใบเบิก']);
-  if (own && can('recv')) T.push(['in','รับเข้า'],['trf','รับของโอน']);
-  T.push(['hist','ประวัติการเบิก']);
-  const pick = list.length > 1 ? `<div class="card"><label>${isAdmin()?'ทำรายการในนามคลัง':'คลังที่ขอเบิก (คุณมีสิทธิ์ขอเบิกได้ '+list.length+' คลัง)'}</label>${storePicker('actStore', list, my)}
-      ${!own?'<div class="muted" style="font-size:13px;margin-top:6px">คลังนี้ไม่ใช่คลังที่คุณสังกัด จึงสร้างใบเบิกและดูประวัติได้อย่างเดียว การรับเข้าให้เจ้าหน้าที่ของคลังนั้นทำ</div>':''}</div>` : '';
-  $('#view').innerHTML = `<h2>ขอเบิกและรับเข้าคลังย่อย</h2><div class="sub">${esc(storeName(my))} · ใบเบิกส่งถึงคลังใหญ่ (ระบบภายนอก) · เมื่อได้ของให้ทำรายการรับเข้าพร้อมราคา</div>${pick}`
-    + tabs(T, (k,el)=>({new:reqNew,in:reqRecvIn,trf:reqReceive,hist:reqHistory})[k](el, my));
-  if ($('#actStore')) $('#actStore').onchange = () => { window._reqAct = window._act = +$('#actStore').value; go('req'); };
+  const T = []; if (canReqHere) T.push(['new','สร้างใบเบิก']); T.push(['hist','ประวัติการเบิก']);
+  const pick = list.length > 1 ? `<div class="card"><label>${isAdmin()?'ทำรายการในนามคลัง':'คลังที่ขอเบิก (คุณมีสิทธิ์ขอเบิกได้ '+list.length+' คลัง)'}</label>${storePicker('actStore', list, my)}</div>` : '';
+  $('#view').innerHTML = `<h2>ใบเบิก</h2><div class="sub">${esc(storeName(my))} · ใบเบิกส่งถึงคลังใหญ่ (ระบบภายนอก) · ได้ของแล้วให้บันทึกที่เมนู "รับเข้า"</div>${pick}`
+    + tabs(T, (k,el)=>({new:reqNew,hist:reqHistory})[k](el, my));
+  if ($('#actStore')) $('#actStore').onchange = () => { window._reqAct = +$('#actStore').value; go('req'); };
+}
+async function pageRcv(){
+  const my = isAdmin() ? (window._rcvAct || me.store_id || subStores()[0]?.store_id) : me.store_id;
+  if (!my) { $('#view').innerHTML = '<div class="card empty">บัญชีนี้ยังไม่ได้สังกัดคลัง กรุณาติดต่อผู้ดูแลระบบ</div>'; return; }
+  if (!can('recv')) { $('#view').innerHTML = '<div class="card empty">คุณยังไม่ได้รับสิทธิ์รับเข้า กรุณาติดต่อผู้ดูแลระบบ</div>'; return; }
+  const pick = isAdmin() ? `<div class="card"><label>ทำรายการในนามคลัง</label>${storePicker('actStore', subStores(), my)}</div>` : '';
+  $('#view').innerHTML = `<h2>รับเข้า</h2><div class="sub">${esc(storeName(my))} · รับตามใบเบิกที่อนุมัติแล้ว ใส่ Lot วันหมดอายุ และราคาทุกรายการ · รับของที่คลังอื่นโอนมา</div>${pick}`
+    + tabs([['in','รับตามใบเบิก'],['trf','รับของโอน'],['hist','ประวัติการรับ']], (k,el)=>({in:reqRecvIn,trf:reqReceive,hist:rcvHistory})[k](el, my));
+  if ($('#actStore')) $('#actStore').onchange = () => { window._rcvAct = +$('#actStore').value; go('rcv'); };
+}
+async function rcvHistory(el, my){
+  const list = await must(sb.from('stock_txn').select('*').eq('to_store_id', my).in('txn_type',['RECV','TRF']).eq('status','DONE').order('posted_at',{ascending:false}).limit(200));
+  el.innerHTML = `<div class="card" id="h"></div><div class="card" id="hd" style="display:none"></div>`;
+  $('#h').innerHTML = tbl(list.map(t=>({...t, when: t.received_at || t.posted_at, ven: vendors.find(v=>v.vendor_id===t.vendor_id)?.vendor_name})),
+    [['when','วันที่รับ',dtt],['txn_no','เลขที่'],['txn_type','ประเภท',v=>v==='TRF'?'รับโอน':'รับเข้า'],['from_store_id','จาก',(v,r)=>v?esc(storeName(v)):esc(r.ven||'คลังใหญ่ (ภายนอก)')],
+     ['ref_doc_no','เอกสารอ้างอิง',v=>esc(v||'')],['remark','หมายเหตุ',v=>esc(v||'')]], {click:true, empty:'ยังไม่มีการรับเข้า'});
+  $('#h').onclick = async e => { const r=e.target.closest('tr[data-i]'); if(!r) return; const t=list[+r.dataset.i];
+    $('#hd').style.display='block';
+    if (t.txn_type==='TRF') { await shipmentView($('#hd'), t, false); }
+    else { const lines = await txnLines(t.txn_id);
+      $('#hd').innerHTML = docHead(t) + tbl(lines.map(l=>({...l, name:itemById(l.item_id)?.item_name, unit:itemById(l.item_id)?.base_unit, amt:Number(l.qty)*Number(l.unit_cost||0)})),
+        [['name','รายการ'],['lot_no','Lot',v=>esc(v||'')],['exp_date','หมดอายุ',dt],['qty','จำนวน',fmt,1],['unit','หน่วย'],['unit_cost','ราคา/หน่วย',baht,1],['amt','รวม',baht,1]]); }
+    $('#hd').scrollIntoView({behavior:'smooth'}); };
 }
 function curStore(){ return me.store_id || window._act || subStores()[0]?.store_id; }
 const isAdmin = () => me.role === 'admin';
@@ -607,7 +626,7 @@ async function reqRecvIn(el, my){
       $('#save').disabled = true;
       try { await createTxn({txn_type:'RECV', to_store_id:my, ref_txn_id:t?.txn_id||null, status:'DRAFT', remark:$('#rrem').value||null,
               vendor_id: $('#rven').value? +$('#rven').value : null, ref_doc_no: $('#rdoc').value.trim()||null, ref_doc_date: $('#rdate').value||null}, lines, true);
-        await loadMaster(); toast('รับเข้าแล้ว','ok'); go('req'); }
+        await loadMaster(); toast('รับเข้าแล้ว','ok'); go('rcv'); }
       catch(e){ toast(errMsg(e),'bad'); $('#save').disabled=false; }
     };
   };
@@ -805,7 +824,7 @@ async function pageAlert(){
     <div class="card"><h3 style="margin-bottom:8px">ใกล้หมดอายุ (90 วัน)</h3>${tbl(exp, [['store_name','คลัง'],['item_name','รายการ'],['lot_no','Lot'],['exp_date','หมดอายุ',dt],['days_left','เหลือ',v=>`<span class="badge ${v<=30?'b-bad':'b-warn'}">${v<0?'หมดแล้ว':v+' วัน'}</span>`,1],['qty_on_hand','คงเหลือ',fmt,1],['stock_value','มูลค่า',baht,1]])}
       ${exp.length && canPage('disp') ? '<div class="muted" style="font-size:13px;margin-top:8px">จัดการ: โอนให้คลังย่อยอื่นที่ใช้ทันก่อนหมดอายุ หรือตัดหมดอายุ ได้ที่เมนู "ตัดจ่ายและโอนย้าย"</div>':''}</div>
     <div class="card"><h3 style="margin-bottom:8px">ต่ำกว่า Min</h3>${tbl(low, [['store_name','คลัง'],['item_name','รายการ'],['on_hand','คงเหลือ',fmt,1],['min_qty','Min',fmt,1],['max_qty','Max',fmt,1],['suggest_req_qty','ควรเบิก',fmt,1]])}
-      ${low.length && canPage('req') ? '<div class="muted" style="font-size:13px;margin-top:8px">สร้างใบเบิกจากรายการนี้ได้ที่เมนู "ขอเบิกและรับเข้า"</div>':''}</div>
+      ${low.length && canPage('req') ? '<div class="muted" style="font-size:13px;margin-top:8px">สร้างใบเบิกจากรายการนี้ได้ที่เมนู "ใบเบิก"</div>':''}</div>
     <div class="card"><h3 style="margin-bottom:8px">รอยืนยันรับเข้า</h3>${tbl(ship, [['posted_at','ส่งเมื่อ',dtt],['txn_no','เลขที่'],['txn_type','ประเภท',v=>TYPE_TH[v]],['from_store_id','จาก',v=>esc(storeName(v))],['to_store_id','ถึง',v=>esc(storeName(v))]])}</div>`;
 }
 
