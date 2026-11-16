@@ -152,15 +152,15 @@ const SUPABASE_URL = 'https://oxcrpbmcmzfomsclmdng.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_frDUEq0gEkCJBkILHs4Zyw_o55iO_VP';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const ROLES = ['requester','unit_head','manager','admin'];
-const ROLE_TH = {requester:'ผู้ปฏิบัติงานคลังย่อย (Sub-stock User)', unit_head:'ผู้ดูแลคลังย่อย (Sub-stock Admin)', main_store:'เจ้าหน้าที่คลังใหญ่', manager:'ผู้บริหาร', admin:'ผู้ดูแลระบบ'};
-const ROLE_SHORT = {requester:'Sub-stock User', unit_head:'Sub-stock Admin', main_store:'คลังใหญ่', manager:'ผู้บริหาร', admin:'ผู้ดูแลระบบ'};
-const TYPE_TH = {REQ:'ใบเบิก',RECV:'รับเข้า',ISSUE:'จ่าย',USE:'จ่ายผู้ป่วย/ตัดใช้',TRF:'โอนย้าย',RET:'คืน',EXP:'ชำรุด/หมดอายุ',ADJ:'ปรับยอด'};
+const ROLES = ['staff','requester','unit_head','manager','admin'];
+const ROLE_TH = {staff:'ผู้ขอเบิก (บุคลากร)', requester:'ผู้ปฏิบัติงานคลังย่อย (Sub-stock User)', unit_head:'ผู้ดูแลคลังย่อย (Sub-stock Admin)', main_store:'เจ้าหน้าที่คลังใหญ่', manager:'ผู้บริหาร', admin:'ผู้ดูแลระบบ'};
+const ROLE_SHORT = {staff:'ผู้ขอเบิก', requester:'Sub-stock User', unit_head:'Sub-stock Admin', main_store:'คลังใหญ่', manager:'ผู้บริหาร', admin:'ผู้ดูแลระบบ'};
+const TYPE_TH = {REQ:'ใบขอเบิก',RECV:'รับเข้า',ISSUE:'จ่าย',USE:'จ่ายผู้ป่วย/ตัดใช้',TRF:'โอนย้าย',RET:'คืน',EXP:'ชำรุด/หมดอายุ',ADJ:'ปรับยอด'};
 const STATUS_TH = {DRAFT:'ร่าง',SUBMIT:'รออนุมัติ',APPROVE:'อนุมัติแล้ว',SHIPPED:'ระหว่างส่ง',DONE:'เสร็จ',CANCEL:'ยกเลิก'};
 const STATUS_CLS = {SUBMIT:'b-warn',APPROVE:'b-ok',SHIPPED:'b-info',CANCEL:'b-bad'};
 const ITEMTYPE_TH = {DRUG:'ยา',MEDSUP:'เวชภัณฑ์',OFFICE:'วัสดุสำนักงาน'};
 
-let me = null, vendors = [], stores = [], items = [], storeItems = [], uoms = [], itemUoms = [], rolePages = [];
+let me = null, departments = [], vendors = [], stores = [], items = [], storeItems = [], uoms = [], itemUoms = [], rolePages = [];
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (n, d) => { d = typeof d === 'number' ? d : 0; return Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:d,maximumFractionDigits:d}); };
@@ -217,7 +217,7 @@ async function boot(){
   buildNav();
 }
 async function loadMaster(){
-  const [s,i,si,u,iu,rp,vd] = await Promise.all([
+  const [s,i,si,u,iu,rp,vd,dp] = await Promise.all([
     sb.from('store').select('*').order('store_type').order('store_name'),
     sb.from('item').select('*').order('item_name'),
     sb.from('store_item').select('*'),
@@ -225,14 +225,15 @@ async function loadMaster(){
     sb.from('item_uom').select('*'),
     sb.from('role_page').select('*'),
     sb.from('vendor').select('*').order('vendor_name'),
+    sb.from('department').select('*').order('dept_name'),
   ]);
-  stores = s.data||[]; items = i.data||[]; storeItems = si.data||[]; uoms = u.data||[]; itemUoms = iu.data||[]; rolePages = rp.data||[]; vendors = vd.data||[];
+  stores = s.data||[]; items = i.data||[]; storeItems = si.data||[]; uoms = u.data||[]; itemUoms = iu.data||[]; rolePages = rp.data||[]; vendors = vd.data||[]; departments = dp.data||[];
 }
 
 // ---------- nav ----------
 const PAGES = {
   dash:    {t:'Dashboard',              fn:pageDash},
-  req:     {t:'ใบเบิก',                 fn:pageReq},
+  req:     {t:'ใบขอเบิก',               fn:pageReq},
   rcv:     {t:'รับเข้า',                fn:pageRcv},
   disp:    {t:'ตัดจ่ายและโอนย้าย',       fn:pageDisp},
   approve: {t:'อนุมัติ',                fn:pageApprove},
@@ -243,7 +244,7 @@ const PAGES = {
   setup:   {t:'Setup & Access',         fn:pageSetup},
 };
 const PAGE_DESC = {
-  dash:'ภาพรวมมูลค่า หมดอายุ ต่ำกว่า Min', req:'สร้างใบเบิกถึงคลังใหญ่ ประวัติการเบิก', rcv:'รับเข้าตามใบเบิกพร้อมราคา รับของโอน ประวัติการรับ', disp:'จ่ายผู้ป่วย โอนระหว่างคลังย่อย ชำรุด/หมดอายุ',
+  dash:'ภาพรวมมูลค่า หมดอายุ ต่ำกว่า Min', req:'บุคลากรขอเบิกจากคลังย่อย เห็นยอดคงเหลือ ติดตามสถานะ', rcv:'รับเข้าจากคลังใหญ่/ผู้ขายพร้อมราคา รับของโอน ประวัติการรับ', disp:'จ่ายผู้ป่วย โอนระหว่างคลังย่อย ชำรุด/หมดอายุ',
   approve:'อนุมัติใบเบิก โอน ตัดชำรุด ปรับยอด',
   card:'บัญชีคุมคลัง ยอดคงเหลือ ความเคลื่อนไหว', alert:'ใกล้หมดอายุ ต่ำกว่า Min รอรับเข้า', master:'สินค้าที่ผูกกับคลัง Min/Max ราคาทุนเฉลี่ย บริษัทผู้ขาย',
   uom:'หน่วยนับและอัตราแปลง', setup:'คลัง/หน่วยงาน ผู้ใช้ สิทธิ์หน้าจอ'};
@@ -272,10 +273,12 @@ async function refreshDots(){
     const { data } = await sb.from('stock_txn').select('txn_id,txn_type,status,from_store_id,to_store_id,created_by').in('status',['SUBMIT','SHIPPED','APPROVE']);
     const L = data||[];
     setDot('approve', L.filter(t=>t.status==='SUBMIT' && canApprove(t)).length);
-    setDot('rcv', L.filter(t=>t.to_store_id===me.store_id && (t.status==='SHIPPED' || (t.status==='APPROVE' && t.txn_type==='REQ'))).length);
+    setDot('rcv', L.filter(t=>t.to_store_id===me.store_id && t.status==='SHIPPED').length);
+    setDot('disp', L.filter(t=>t.txn_type==='REQ' && t.status==='SUBMIT' && t.from_store_id===me.store_id).length);
   } catch(_){}
 }
 function canApprove(t){
+  if (t.txn_type==='REQ') return false;
   if (t.created_by === me.user_id) return false;
   if (t.txn_type==='ADJ') return ['manager','admin'].includes(me.role);
   if (['manager','admin'].includes(me.role)) return true;
@@ -415,7 +418,7 @@ function docHead(t){ const v = vendors.find(x=>x.vendor_id===t.vendor_id);
 // =====================================================================
 async function pageSetup(){
   $('#view').innerHTML = `<h2>Setup & Access</h2><div class="sub">กำหนดหน่วยงาน/คลัง ผู้ใช้ และสิทธิ์เข้าถึงระดับหน้าจอ · ข้อมูลแต่ละคลังถูกจำกัดในฐานข้อมูล ผู้ใช้คลังหนึ่งแก้ไขข้อมูลคลังอื่นไม่ได้</div>`
-    + tabs([['store','หน่วยงาน/คลัง'],['user','ผู้ใช้'],['perm','สิทธิ์หน้าจอ']], (k,el)=>({store:setupStores,user:setupUsers,perm:setupPerms})[k](el));
+    + tabs([['store','คลังย่อย'],['dept','หน่วยงานผู้ขอเบิก'],['user','ผู้ใช้'],['perm','สิทธิ์หน้าจอ']], (k,el)=>({store:setupStores,dept:setupDepts,user:setupUsers,perm:setupPerms})[k](el));
 }
 async function setupStores(el){
   const draw = () => {
@@ -447,8 +450,28 @@ async function setupStores(el){
     }
   };
 }
+async function setupDepts(el){
+  const draw = () => {
+    el.innerHTML = `<div class="card"><h3 style="margin-bottom:4px">เพิ่มหน่วยงาน</h3><div class="sub">หน่วยงานของผู้ขอเบิก ใช้นับเพดานการขอเบิกต่อเดือน (คนในหน่วยงานเดียวกันนับรวมกัน)</div>
+      <div class="row"><div><label>รหัส</label><input id="dc"></div><div style="flex:3"><label>ชื่อหน่วยงาน</label><input id="dn" placeholder="เช่น งานผู้ป่วยนอก"></div><div style="flex:0"><button class="pri" id="addD">เพิ่ม</button></div></div></div>
+      <div class="card"><h3 style="margin-bottom:12px">หน่วยงานทั้งหมด (${departments.length})</h3>
+      <table><thead><tr><th>รหัส</th><th>ชื่อ</th><th>ใช้งาน</th><th></th></tr></thead><tbody>
+      ${departments.map(d=>`<tr data-id="${d.dept_id}"><td>${esc(d.dept_code)}</td><td><input data-f="dept_name" value="${esc(d.dept_name)}"></td><td><input type="checkbox" data-f="is_active" ${d.is_active?'checked':''}></td><td><button class="ghost" data-save="${d.dept_id}">บันทึก</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">ยังไม่มีหน่วยงาน</td></tr>'}
+      </tbody></table></div>`;
+  };
+  draw();
+  el.onclick = async e => {
+    try {
+      if (e.target.id==='addD') { const rec={dept_code:$('#dc').value.trim(), dept_name:$('#dn').value.trim()}; if(!rec.dept_code||!rec.dept_name) return toast('กรอกรหัสและชื่อ','bad');
+        const { error } = await sb.from('department').insert(rec); if (error) return toast(error.code==='23505'?'รหัสนี้มีแล้ว':error.message,'bad'); toast('เพิ่มแล้ว','ok'); await loadMaster(); draw(); }
+      const id = e.target.dataset.save;
+      if (id) { const tr=e.target.closest('tr'); await must(sb.from('department').update({dept_name:tr.querySelector('[data-f=dept_name]').value.trim(), is_active:tr.querySelector('[data-f=is_active]').checked}).eq('dept_id',+id)); toast('บันทึกแล้ว','ok'); await loadMaster(); }
+    } catch(err){ toast(errMsg(err),'bad'); }
+  };
+}
 async function setupUsers(el){
   const roleSel = (id, v) => `<select ${id}>${ROLES.map(r=>`<option value="${r}" ${r===v?'selected':''}>${ROLE_SHORT[r]}</option>`).join('')}</select>`;
+  const deptSel = (id, v) => `<select ${id}><option value="">—</option>${departments.map(d=>`<option value="${d.dept_id}" ${d.dept_id===v?'selected':''}>${esc(d.dept_name)}</option>`).join('')}</select>`;
   const storeSel = (id, v) => `<select ${id}><option value="">— ไม่สังกัด —</option>${stores.map(s=>`<option value="${s.store_id}" ${s.store_id===v?'selected':''}>${esc(s.store_name)}</option>`).join('')}</select>`;
   let users = [], extra = [];
   const draw = async () => {
@@ -459,10 +482,10 @@ async function setupUsers(el){
       <div><label>รหัสผ่านเริ่มต้น</label><input id="up" type="text" placeholder="อย่างน้อย 8 ตัว"></div><div style="flex:0"><button class="pri" id="addU">เพิ่ม</button></div></div></div>
       <div class="card"><h3 style="margin-bottom:4px">ผู้ใช้และสิทธิ์ (${users.length})</h3>
       <div class="sub">สิทธิ์รับเข้า จ่ายออก โอน ตัดชำรุด ใช้กับคลังที่สังกัด · ขอเบิกได้ทั้งคลังที่สังกัด (ติ๊ก "ขอเบิก") และคลังอื่นที่เลือกเพิ่ม · ผู้ดูแลระบบมีสิทธิ์ทุกอย่าง</div>
-      <div style="overflow-x:auto"><table class="matrix"><thead><tr><th>ผู้ใช้</th><th>บทบาท</th><th>สังกัดคลัง</th>${PERMS.map(p=>`<th>${p[1]}</th>`).join('')}<th>ขอเบิกแทนคลังอื่น</th><th>ใช้งาน</th><th></th></tr></thead><tbody>
+      <div style="overflow-x:auto"><table class="matrix"><thead><tr><th>ผู้ใช้</th><th>บทบาท</th><th>สังกัดคลัง</th><th>หน่วยงาน</th>${PERMS.map(p=>`<th>${p[1]}</th>`).join('')}<th>คลังที่ขอเบิกได้</th><th>ใช้งาน</th><th></th></tr></thead><tbody>
       ${users.map(u=>{ const ex = extra.filter(x=>x.user_id===u.user_id).map(x=>x.store_id);
         return `<tr data-id="${u.user_id}"><td style="text-align:left;min-width:190px"><input data-f="full_name" value="${esc(u.full_name||'')}" placeholder="ยังไม่มีโปรไฟล์"><div class="muted" style="font-size:12px;margin-top:2px">${esc(u.email)} · เข้าล่าสุด ${dt(u.last_sign_in_at)||'-'}</div></td>
-        <td>${roleSel('data-f="role"', u.role||'requester')}</td><td>${storeSel('data-f="store_id"', u.store_id)}</td>
+        <td>${roleSel('data-f="role"', u.role||'requester')}</td><td>${storeSel('data-f="store_id"', u.store_id)}</td><td>${deptSel('data-f="dept_id"', u.dept_id)}</td>
         ${PERMS.map(p=>`<td><input type="checkbox" data-f="can_${p[0]}" ${u['can_'+p[0]]?'checked':''}></td>`).join('')}
         <td style="text-align:left;min-width:170px"><button class="ghost" data-ex="${u.user_id}" ${u.role?'':'disabled title="บันทึกโปรไฟล์ก่อน"'}>${ex.length?ex.map(id=>esc(storeName(id))).join(', '):'— เลือก —'}</button></td>
         <td><input type="checkbox" data-f="is_active" ${u.is_active?'checked':''}></td>
@@ -470,7 +493,7 @@ async function setupUsers(el){
       </tbody></table></div></div>`;
   };
   await draw();
-  const addRow = (tr, cls, html) => { const n = tr.nextElementSibling; if (n && n.classList.contains(cls)) { n.remove(); return; } tr.insertAdjacentHTML('afterend', `<tr class="${cls}"><td colspan="${5+PERMS.length+2}" style="text-align:left;background:var(--bg)">${html}</td></tr>`); };
+  const addRow = (tr, cls, html) => { const n = tr.nextElementSibling; if (n && n.classList.contains(cls)) { n.remove(); return; } tr.insertAdjacentHTML('afterend', `<tr class="${cls}"><td colspan="${6+PERMS.length+2}" style="text-align:left;background:var(--bg)">${html}</td></tr>`); };
   el.onclick = async e => {
     try {
       if (e.target.id==='addU') {
@@ -482,7 +505,7 @@ async function setupUsers(el){
       const id = e.target.dataset.save;
       if (id) {
         const tr = el.querySelector(`tr[data-id="${id}"]`); const g = f => tr.querySelector(`[data-f="${f}"]`);
-        const rec = {user_id:id, full_name:g('full_name').value.trim()||'-', role:g('role').value, store_id:g('store_id').value? +g('store_id').value : null, is_active:g('is_active').checked};
+        const rec = {user_id:id, full_name:g('full_name').value.trim()||'-', role:g('role').value, store_id:g('store_id').value? +g('store_id').value : null, dept_id:g('dept_id').value? +g('dept_id').value : null, is_active:g('is_active').checked};
         PERMS.forEach(p=>rec['can_'+p[0]] = g('can_'+p[0]).checked);
         if (['requester','unit_head'].includes(rec.role) && !rec.store_id) return toast('Sub-stock User/Admin ต้องเลือกคลังที่สังกัด','bad');
         if (id===me.user_id && (rec.role!=='admin' || !rec.is_active)) return toast('เปลี่ยนบทบาท/ปิดบัญชีของตัวเองไม่ได้ (กันล็อกตัวเองออก)','bad');
@@ -493,7 +516,7 @@ async function setupUsers(el){
       if (exid) {
         const cur = extra.filter(x=>x.user_id===exid).map(x=>x.store_id);
         const u = users.find(x=>x.user_id===exid);
-        addRow(e.target.closest('tr'), 'exrow', `<div style="padding:4px 0 8px"><b>คลังที่ ${esc(u.full_name||u.email)} ขอเบิกแทนได้</b> <span class="muted" style="font-size:13px">(นอกจากคลังที่สังกัด)</span></div>
+        addRow(e.target.closest('tr'), 'exrow', `<div style="padding:4px 0 8px"><b>คลังย่อยที่ ${esc(u.full_name||u.email)} ส่งใบขอเบิกได้</b> <span class="muted" style="font-size:13px">(คลังที่สังกัดขอได้อยู่แล้วถ้าติ๊กสิทธิ์ขอเบิก)</span></div>
           <div style="display:flex;flex-wrap:wrap;gap:6px 18px">${subStores().filter(s=>s.store_id!==u.store_id).map(s=>`<label style="margin:0;color:var(--ink)"><input type="checkbox" class="exs" value="${s.store_id}" ${cur.includes(s.store_id)?'checked':''}> ${esc(s.store_name)}</label>`).join('') || '<span class="muted">ไม่มีคลังอื่น</span>'}</div>
           <div style="margin-top:10px"><button class="pri" data-exsave="${exid}">บันทึกคลังที่ขอเบิกได้</button></div>`);
       }
@@ -529,22 +552,23 @@ async function setupPerms(el){
 // 2) REQUISITION & RECEIVING
 // =====================================================================
 async function pageReq(){
-  const my = reqStore(); const list = reqStoreList();
-  const canReqHere = isAdmin() || (me.reqStores||[]).includes(my);
-  const T = []; if (canReqHere) T.push(['new','สร้างใบเบิก']); T.push(['bal','ยอดคงเหลือและจุดสั่งเบิก'],['hist','ประวัติการเบิก']);
-  const start = T.some(t=>t[0]===window._reqTab) ? window._reqTab : undefined; window._reqTab = null;
-  const pick = list.length > 1 ? `<div class="card"><label>${isAdmin()?'ทำรายการในนามคลัง':'คลังที่ขอเบิก (คุณมีสิทธิ์ขอเบิกได้ '+list.length+' คลัง)'}</label>${storePicker('actStore', list, my)}</div>` : '';
-  $('#view').innerHTML = `<h2>ใบเบิก</h2><div class="sub">${esc(storeName(my))} · ใบเบิกส่งถึงคลังใหญ่ (ระบบภายนอก) · ได้ของแล้วให้บันทึกที่เมนู "รับเข้า"</div>${pick}`
-    + tabs(T, (k,el)=>({new:reqNew,bal:reqBal,hist:reqHistory})[k](el, my), start);
-  if ($('#actStore')) $('#actStore').onchange = () => { window._reqAct = +$('#actStore').value; go('req'); };
+  const list = reqStoreList();
+  if (!list.length) { $('#view').innerHTML = '<h2>ใบขอเบิก</h2><div class="card empty">คุณยังไม่ได้รับสิทธิ์ขอเบิกจากคลังย่อยใด กรุณาติดต่อผู้ดูแลระบบ</div>'; return; }
+  const my = reqStore();
+  const dept = departments.find(d=>d.dept_id===me.dept_id);
+  $('#view').innerHTML = `<h2>ใบขอเบิก</h2><div class="sub">ขอเบิกยา/เวชภัณฑ์/วัสดุจากคลังย่อย · คลังย่อยเป็นผู้จ่ายหรือปฏิเสธ${dept?' · หน่วยงาน: '+esc(dept.dept_name):''}</div>`
+    + `<div class="card"><label>ขอเบิกจากคลัง</label>${storePicker('actStore', list, my)}</div>`
+    + tabs([['new','สร้างใบขอเบิก'],['mine','ใบขอเบิกของฉัน']], (k,el)=>({new:reqNew,mine:reqMine})[k](el, my), window._reqTab||undefined);
+  window._reqTab = null;
+  $('#actStore').onchange = () => { window._reqAct = +$('#actStore').value; go('req'); };
 }
 async function pageRcv(){
   const my = isAdmin() ? (window._rcvAct || me.store_id || subStores()[0]?.store_id) : me.store_id;
   if (!my) { $('#view').innerHTML = '<div class="card empty">บัญชีนี้ยังไม่ได้สังกัดคลัง กรุณาติดต่อผู้ดูแลระบบ</div>'; return; }
   if (!can('recv')) { $('#view').innerHTML = '<div class="card empty">คุณยังไม่ได้รับสิทธิ์รับเข้า กรุณาติดต่อผู้ดูแลระบบ</div>'; return; }
   const pick = isAdmin() ? `<div class="card"><label>ทำรายการในนามคลัง</label>${storePicker('actStore', subStores(), my)}</div>` : '';
-  $('#view').innerHTML = `<h2>รับเข้า</h2><div class="sub">${esc(storeName(my))} · รับตามใบเบิกที่อนุมัติแล้ว ใส่ Lot วันหมดอายุ และราคาทุกรายการ · รับของที่คลังอื่นโอนมา</div>${pick}`
-    + tabs([['in','รับตามใบเบิก'],['trf','รับของโอน'],['hist','ประวัติการรับ']], (k,el)=>({in:reqRecvIn,trf:reqReceive,hist:rcvHistory})[k](el, my));
+  $('#view').innerHTML = `<h2>รับเข้า</h2><div class="sub">${esc(storeName(my))} · รับของจากคลังใหญ่/ผู้ขาย ใส่ Lot วันหมดอายุ และราคาทุกรายการ · รับของที่คลังอื่นโอนมา</div>${pick}`
+    + tabs([['in','รับเข้า'],['trf','รับของโอน'],['hist','ประวัติการรับ']], (k,el)=>({in:reqRecvIn,trf:reqReceive,hist:rcvHistory})[k](el, my));
   if ($('#actStore')) $('#actStore').onchange = () => { window._rcvAct = +$('#actStore').value; go('rcv'); };
 }
 async function rcvHistory(el, my){
@@ -574,89 +598,138 @@ function reqStore(){
 const boundItems = sid => items.filter(i=>i.is_active && storeItems.some(x=>x.store_id===sid && x.item_id===i.item_id));
 const avgCost = (sid, iid) => Number(storeItems.find(x=>x.store_id===sid && x.item_id===iid)?.avg_cost || 0);
 function noItemsMsg(){ return `<div class="card empty">ยังไม่มีสินค้าผูกกับคลังนี้ · ${canPage('master')?'เพิ่มได้ที่เมนู "สินค้าประจำคลัง"':'ติดต่อผู้ดูแลคลังย่อย'}</div>`; }
+const REQ_ST = {DRAFT:['ร่าง',''], SUBMIT:['รอคลังจ่าย','b-warn'], APPROVE:['รอคลังจ่าย','b-warn'], DONE:['จ่ายแล้ว','b-ok'], CANCEL:['ยกเลิก/ปฏิเสธ','b-bad']};
+const reqBadge = s => `<span class="badge ${REQ_ST[s]?.[1]||''}">${REQ_ST[s]?.[0]||s}</span>`;
 async function reqNew(el, my){
-  const allowed = storeItems.filter(x=>x.store_id===my);
-  if (!allowed.length) { el.innerHTML = noItemsMsg(); return; }
-  const bal = sumByItem(await balanceRows(my));
-  const low = await must(sb.from('v_below_min').select('*').eq('store_id', my));
-  el.innerHTML = `
-    ${low.length?`<div class="card" style="background:var(--warn-soft);border-color:#f3dcb4;display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><b>${low.length} รายการต่ำกว่า Min</b> <span class="muted">ระบบเสนอจำนวนเบิกให้เต็ม Max · ดูรายละเอียดที่แท็บ "ยอดคงเหลือและจุดสั่งเบิก"</span></div><button class="pri" id="fill">ใส่รายการที่ควรเบิก</button></div>`:''}
-    <div class="card"><h3 style="margin-bottom:12px">ใบเบิกถึงคลังใหญ่</h3><div id="lines"></div>
-      <div style="margin-top:12px"><label>หมายเหตุ / เลขที่ใบเบิกในระบบคลังใหญ่ (ถ้ามี)</label><input id="remark"></div>
-      <div style="margin-top:16px;text-align:right"><button class="pri" id="send">ส่งใบเบิก (รอผู้ดูแลคลังย่อยอนุมัติ)</button></div></div>`;
-  const ed = lineEditor($('#lines'), {itemList:()=>boundItems(my), cols:['info'], info:r=>{ if(!r.item_id) return ''; const a=allowed.find(x=>x.item_id==r.item_id); return `คงเหลือ ${fmt(bal[+r.item_id]||0)}${a?` · Min ${fmt(a.min_qty)} / Max ${fmt(a.max_qty)}`:''}`; }});
-  const fill = () => ed.set(low.map(l=>({item_id:l.item_id, qty:l.suggest_req_qty})));
-  if ($('#fill')) $('#fill').onclick = fill;
-  if (window._reqPrefill) { window._reqPrefill = false; fill(); }
+  const allowed = storeItems.filter(x=>x.store_id===my && itemById(x.item_id)?.is_active);
+  if (!allowed.length) { el.innerHTML = '<div class="card empty">คลังนี้ยังไม่มีรายการให้ขอเบิก</div>'; return; }
+  const [rows, used] = await Promise.all([balanceRows(my), must(sb.rpc('my_req_used', {p_store:my}))]);
+  const bal = sumByItem(rows); const U = {}; used.forEach(u=>U[u.item_id]=Number(u.used));
+  const R = allowed.map(a=>{ const it=itemById(a.item_id); const b=bal[a.item_id]||0; const u=U[a.item_id]||0;
+    const leftM = a.max_per_month!=null ? Math.max(0, a.max_per_month-u) : Infinity;
+    const cap = Math.min(a.max_per_req ?? Infinity, leftM, b);
+    return {...a, it, b, u, cap}; }).sort((x,y)=>(x.it.item_name||'').localeCompare(y.it.item_name||'','th'));
+  el.innerHTML = `<div class="card"><div class="row"><div><label>ค้นหา</label><input id="rq" placeholder="ชื่อหรือรหัส"></div><div style="flex:2"></div></div></div>
+    <div class="card"><div class="sub">ใส่จำนวนในช่อง "ขอเบิก" เฉพาะรายการที่ต้องการ · เพดานต่อเดือนนับรวมทั้งหน่วยงาน</div><div style="overflow-x:auto">
+    <table><thead><tr><th>รหัส</th><th>รายการ</th><th class="num">คงเหลือในคลัง</th><th>หน่วย</th><th class="num">สูงสุด/ใบ</th><th class="num">เดือนนี้ขอแล้ว</th><th class="num" style="width:120px">ขอเบิก</th></tr></thead><tbody id="rt">
+    ${R.map(r=>`<tr data-code="${esc((r.it.item_code+' '+r.it.item_name).toLowerCase())}"><td>${esc(r.it.item_code)}</td><td>${esc(r.it.item_name)}${r.it.is_high_alert?' <span class="badge b-bad">High-alert</span>':''}</td>
+      <td class="num">${r.b>0?fmt(r.b):'<span class="badge b-bad">หมด</span>'}</td><td>${esc(r.it.base_unit)}</td>
+      <td class="num">${r.max_per_req!=null?fmt(r.max_per_req):'<span class="muted">ไม่จำกัด</span>'}</td>
+      <td class="num">${fmt(r.u)}${r.max_per_month!=null?` / ${fmt(r.max_per_month)}`:''}</td>
+      <td><input type="number" min="0" step="any" data-item="${r.item_id}" data-cap="${r.cap===Infinity?'':r.cap}" ${r.cap<=0?'disabled placeholder="ขอไม่ได้"':`placeholder="ได้ถึง ${fmt(r.cap)}"`} style="text-align:right"></td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="margin-top:12px"><label>เหตุผล / นำไปใช้ที่</label><input id="remark"></div>
+    <div style="margin-top:16px;text-align:right"><span id="cnt" class="muted" style="margin-right:12px"></span><button class="pri" id="send">ส่งใบขอเบิก</button></div></div>`;
+  const count = () => { const n=[...el.querySelectorAll('#rt input')].filter(i=>Number(i.value)>0).length; $('#cnt').textContent = n? `${n} รายการ`:''; };
+  $('#rt').oninput = count;
+  $('#rq').oninput = () => { const q=$('#rq').value.trim().toLowerCase(); el.querySelectorAll('#rt tr').forEach(tr=>tr.style.display = !q || tr.dataset.code.includes(q) ? '' : 'none'); };
   $('#send').onclick = async () => {
-    const lines = ed.get(); if (!lines.length) return toast('ยังไม่มีรายการ','bad');
+    const lines = [];
+    for (const i of el.querySelectorAll('#rt input')) { const q=Number(i.value); if (!(q>0)) continue;
+      const cap = i.dataset.cap===''?Infinity:Number(i.dataset.cap);
+      if (q>cap) return toast(itemById(+i.dataset.item).item_name+' ขอได้ไม่เกิน '+fmt(cap),'bad');
+      lines.push({item_id:+i.dataset.item, qty:q}); }
+    if (!lines.length) return toast('ใส่จำนวนอย่างน้อย 1 รายการ','bad');
     $('#send').disabled = true;
-    try { const t = await createTxn({txn_type:'REQ', to_store_id:my, status:'SUBMIT', remark:$('#remark').value||null}, lines, false);
-      toast('ส่งใบเบิก '+t.txn_no+' แล้ว','ok'); go('req'); }
+    try { const t = await createTxn({txn_type:'REQ', from_store_id:my, status:'SUBMIT', remark:$('#remark').value||null}, lines, false);
+      toast('ส่งใบขอเบิก '+t.txn_no+' แล้ว','ok'); window._reqTab='mine'; go('req'); }
     catch(e){ toast(errMsg(e),'bad'); $('#send').disabled=false; }
   };
 }
-async function reqBal(el, my){
-  const allowed = storeItems.filter(x=>x.store_id===my);
-  if (!allowed.length) { el.innerHTML = noItemsMsg(); return; }
-  const bal = sumByItem(await balanceRows(my));
-  const pending = await must(sb.from('stock_txn').select('txn_id').eq('txn_type','REQ').eq('to_store_id', my).in('status',['SUBMIT','APPROVE']));
-  const pend = {}; if (pending.length) (await must(sb.from('stock_txn_line').select('item_id,qty').in('txn_id', pending.map(t=>t.txn_id)))).forEach(l=>pend[l.item_id]=(pend[l.item_id]||0)+Number(l.qty));
-  const rows = allowed.map(a=>{ const it=itemById(a.item_id); const b=bal[a.item_id]||0; const need = b<a.min_qty ? a.max_qty-b : 0;
-    return {...a, code:it?.item_code, name:it?.item_name, unit:it?.base_unit, bal:b, pend:pend[a.item_id]||0, need,
-      st: b<=0 ? 'หมด' : b<a.min_qty ? 'ต่ำกว่า Min' : b>a.max_qty ? 'เกิน Max' : 'ปกติ'}; })
-    .sort((x,y)=>(y.need>0)-(x.need>0) || (x.name||'').localeCompare(y.name||'','th'));
-  const nLow = rows.filter(r=>r.need>0).length;
-  const canReqHere = isAdmin() || (me.reqStores||[]).includes(my);
-  el.innerHTML = `<div class="card"><div class="row" style="align-items:center">
-      <div><label>ค้นหา</label><input id="bq" placeholder="ชื่อหรือรหัส"></div>
-      <div style="min-width:180px"><label style="margin-top:22px"><input type="checkbox" id="bonly"> เฉพาะที่ควรเบิก (${nLow})</label></div>
-      <div style="flex:0 0 auto;min-width:0">${nLow && canReqHere ? `<button class="pri" id="mk" style="margin-top:20px;white-space:nowrap">สร้างใบเบิกจาก ${nLow} รายการที่ควรเบิก</button>`:''}</div></div></div>
-    <div class="card"><div class="sub">ควรเบิก = Max − คงเหลือ เมื่อคงเหลือต่ำกว่า Min · "เบิกค้าง" คือจำนวนในใบเบิกที่ยังไม่ได้รับของ</div><div id="bt"></div></div>`;
-  const cls = {'หมด':'b-bad','ต่ำกว่า Min':'b-warn','เกิน Max':'b-info','ปกติ':'b-ok'};
-  const draw = () => {
-    const q = $('#bq').value.trim().toLowerCase(), only = $('#bonly').checked;
-    $('#bt').innerHTML = tbl(rows.filter(r=>(!only || r.need>0) && (!q || (r.name||'').toLowerCase().includes(q) || (r.code||'').toLowerCase().includes(q))),
-      [['code','รหัส'],['name','รายการ'],['bal','คงเหลือ',(v,r)=>`<b style="color:${v<r.min_qty?'var(--bad)':'inherit'}">${fmt(v)}</b>`,1],['min_qty','Min',fmt,1],['max_qty','Max',fmt,1],
-       ['pend','เบิกค้าง',v=>v?fmt(v):'',1],['need','ควรเบิก',v=>v?`<span class="badge b-warn">${fmt(v)}</span>`:'',1],['unit','หน่วย'],['st','สถานะ',v=>`<span class="badge ${cls[v]}">${v}</span>`]],
-      {empty:'ไม่มีรายการ'});
-  };
-  $('#bq').oninput = draw; $('#bonly').onchange = draw; draw();
-  if ($('#mk')) $('#mk').onclick = () => { window._reqPrefill = true; window._reqTab = 'new'; go('req'); };
+async function reqMine(el){
+  const list = await must(sb.from('stock_txn').select('*').eq('txn_type','REQ').eq('created_by', me.user_id).neq('status','DRAFT').order('txn_date',{ascending:false}).limit(100));
+  el.innerHTML = `<div class="card" id="h"></div><div class="card" id="hd" style="display:none"></div>`;
+  $('#h').innerHTML = tbl(list, [['txn_date','วันที่',dtt],['txn_no','เลขที่'],['from_store_id','คลัง',v=>esc(storeName(v))],['status','สถานะ',reqBadge],['remark','หมายเหตุ',v=>esc(v||'')]], {click:true, empty:'ยังไม่มีใบขอเบิก'});
+  $('#h').onclick = async e => { const r=e.target.closest('tr[data-i]'); if(!r) return; const t=list[+r.dataset.i];
+    const [lines, iss] = await Promise.all([txnLines(t.txn_id), must(sb.rpc('my_req_issues', {p_req_ids:[t.txn_id]}))]);
+    const got = {}; iss.forEach(x=>got[x.item_id]=(got[x.item_id]||0)+Number(x.qty));
+    $('#hd').style.display='block';
+    $('#hd').innerHTML = `<h3>ใบขอเบิก ${esc(t.txn_no)}</h3><div class="sub">${reqBadge(t.status)} · ${esc(storeName(t.from_store_id))} · ${dtt(t.txn_date)}${t.remark?'<br>'+esc(t.remark):''}${iss[0]?'<br>จ่ายเมื่อ '+dtt(iss[0].posted_at)+' ('+esc(iss[0].txn_no)+')':''}</div>`
+      + tbl(lines.map(l=>({...l, name:itemById(l.item_id)?.item_name, unit:itemById(l.item_id)?.base_unit, got: t.status==='DONE'?(got[l.item_id]||0):null})),
+        [['name','รายการ'],['qty','ขอ',fmt,1],['got','ได้รับ',(v,r)=>v==null?'':`<b style="color:${v<r.qty?'var(--warn)':'inherit'}">${fmt(v)}</b>`,1],['unit','หน่วย']])
+      + (t.status==='SUBMIT' ? '<div style="margin-top:12px;text-align:right"><button class="danger" id="cx">ยกเลิกใบขอเบิก</button></div>' : '');
+    if ($('#cx')) $('#cx').onclick = async () => { const { error } = await sb.from('stock_txn').update({status:'CANCEL'}).eq('txn_id', t.txn_id); if (error) toast(error.message,'bad'); else { toast('ยกเลิกแล้ว','ok'); window._reqTab='mine'; go('req'); } };
+    $('#hd').scrollIntoView({behavior:'smooth'}); };
 }
-async function reqRecvIn(el, my){
-  if (!storeItems.some(x=>x.store_id===my)) { el.innerHTML = noItemsMsg(); return; }
-  const reqs = await must(sb.from('stock_txn').select('*').eq('txn_type','REQ').eq('status','APPROVE').eq('to_store_id', my).order('approved_at'));
-  el.innerHTML = `<div class="card" id="lst"></div><div class="card" id="det"><div class="empty">เลือกใบเบิกที่ได้ของแล้ว หรือรับเข้าโดยไม่อ้างอิงใบเบิก</div></div>`;
-  $('#lst').innerHTML = `<h3 style="margin-bottom:8px">ใบเบิกที่อนุมัติแล้ว รอรับของ</h3>`
-    + (reqs.length ? reqs.map((t,i)=>`<div class="clickrow" data-i="${i}" style="padding:10px;border-bottom:1px solid var(--line)"><b>${esc(t.txn_no)}</b><div class="muted" style="font-size:13px">อนุมัติ ${dtt(t.approved_at)}${t.remark?' · '+esc(t.remark):''}</div></div>`).join('') : '<div class="empty">ไม่มีใบเบิกรอรับ</div>')
-    + `<div class="clickrow" data-i="-1" style="padding:10px;margin-top:8px;color:var(--pri)">+ รับเข้าโดยไม่อ้างอิงใบเบิก</div>`;
+async function dispReqs(el, my){
+  const list = await must(sb.from('stock_txn').select('*').eq('txn_type','REQ').eq('status','SUBMIT').eq('from_store_id', my).order('txn_date'));
+  const who = list.length ? await must(sb.rpc('req_requesters', {p_ids:list.map(t=>t.txn_id)})) : [];
+  const W = id => who.find(w=>w.txn_id===id) || {};
+  el.innerHTML = `<div class="card" id="lst"></div><div class="card" id="det"><div class="empty">เลือกใบขอเบิกด้านบน</div></div>`;
+  $('#lst').innerHTML = `<h3 style="margin-bottom:8px">ใบขอเบิกรอจ่าย (${list.length})</h3>` + (list.length ? list.map((t,i)=>`<div class="clickrow" data-i="${i}" style="padding:10px;border-bottom:1px solid var(--line)"><b>${esc(t.txn_no)}</b>${W(t.txn_id).full_name?' · '+esc(W(t.txn_id).full_name):''}${W(t.txn_id).dept_name?' ('+esc(W(t.txn_id).dept_name)+')':''}<div class="muted" style="font-size:13px">${dtt(t.txn_date)}${t.remark?' · '+esc(t.remark):''}</div></div>`).join('') : '<div class="empty">ไม่มีใบขอเบิกรอจ่าย</div>');
   $('#lst').onclick = async e => {
     const r = e.target.closest('[data-i]'); if (!r) return;
     $('#lst').querySelectorAll('[data-i]').forEach(x=>x.classList.toggle('sel', x===r));
-    const t = +r.dataset.i >= 0 ? reqs[+r.dataset.i] : null;
-    const init = t ? (await txnLines(t.txn_id)).map(l=>({item_id:l.item_id, qty:l.qty, uom:itemById(l.item_id)?.base_unit, unit_cost:''})) : null;
-    $('#det').innerHTML = (t ? docHead(t) : '<h3>รับเข้าโดยไม่อ้างอิงใบเบิก</h3><div class="sub">เช่น ได้ของเพิ่มเติม หรือใบเบิกจากระบบเดิม</div>')
-      + `<div class="note">ต้องใส่ Lot วันหมดอายุ และราคาต่อหน่วยทุกรายการ · ระบบจะคำนวณราคาทุนเฉลี่ยของคลังใหม่ให้อัตโนมัติ</div>
+    const t = list[+r.dataset.i]; const [lines, rows] = await Promise.all([txnLines(t.txn_id), balanceRows(my)]); const bal = sumByItem(rows);
+    $('#det').innerHTML = `<h3>ใบขอเบิก ${esc(t.txn_no)}</h3><div class="sub">ผู้ขอ ${esc(W(t.txn_id).full_name||'-')}${W(t.txn_id).dept_name?' · '+esc(W(t.txn_id).dept_name):''} · ${dtt(t.txn_date)}${t.remark?'<br>'+esc(t.remark):''}</div>
+      <div class="note">ใส่จำนวนที่จ่ายจริง (ไม่เกินที่ขอและยอดคงเหลือ) ระบบตัดยอดตาม FEFO และราคาทุนเฉลี่ย · จ่ายแล้วใบขอเบิกปิดทันที ส่วนที่ไม่ได้จ่ายต้องขอใหม่</div>
+      <table><thead><tr><th>รายการ</th><th class="num">ขอ</th><th class="num">คงเหลือ</th><th>หน่วย</th><th class="num" style="width:120px">จ่าย</th></tr></thead><tbody>
+      ${lines.map(l=>{ const it=itemById(l.item_id); const b=bal[l.item_id]||0; const d=Math.min(Number(l.qty), b);
+        return `<tr><td>${esc(it?.item_name)}${it?.is_high_alert?' <span class="badge b-bad">High-alert</span>':''}</td><td class="num">${fmt(l.qty)}</td><td class="num" style="color:${b<l.qty?'var(--bad)':'inherit'}">${fmt(b)}</td><td>${esc(it?.base_unit)}</td>
+        <td><input type="number" min="0" step="any" class="dq" data-item="${l.item_id}" data-max="${d}" value="${d}" style="text-align:right"></td></tr>`; }).join('')}
+      </tbody></table>
+      <div class="row" style="margin-top:16px;align-items:flex-end"><div><label>เหตุผล (กรณีปฏิเสธ)</label><input id="rj"></div>
+      <div style="flex:0 0 auto"><button class="danger" id="reject">ปฏิเสธ</button></div><div style="flex:0 0 auto"><button class="pri" id="pay">จ่ายตามจำนวนนี้</button></div></div>`;
+    $('#pay').onclick = async () => {
+      const ls = [];
+      for (const i of $('#det').querySelectorAll('.dq')) { const q=Number(i.value); if (!(q>0)) continue; if (q>Number(i.dataset.max)) return toast(itemById(+i.dataset.item).item_name+' จ่ายได้ไม่เกิน '+fmt(i.dataset.max),'bad'); ls.push({item_id:+i.dataset.item, qty:q}); }
+      if (!ls.length) return toast('ไม่มีรายการจ่าย ถ้าจ่ายไม่ได้ให้กดปฏิเสธ','bad');
+      const hi = ls.find(l=>itemById(l.item_id)?.is_high_alert); if (hi) return toast(itemById(hi.item_id).item_name+' เป็นยา High-alert ให้จ่ายที่แท็บ "จ่ายผู้ป่วย/ตัดใช้" พร้อม HN/AN','bad');
+      $('#pay').disabled = true;
+      try { await createTxn({txn_type:'USE', from_store_id:my, ref_txn_id:t.txn_id, status:'DRAFT', remark:'จ่ายตามใบขอเบิก '+t.txn_no+(W(t.txn_id).dept_name?' · '+W(t.txn_id).dept_name:'')}, ls, true);
+        toast('จ่ายแล้ว','ok'); go('disp'); }
+      catch(e){ toast(errMsg(e),'bad'); $('#pay').disabled=false; }
+    };
+    $('#reject').onclick = async () => {
+      if (!$('#rj').value.trim()) return toast('กรุณาระบุเหตุผลที่ปฏิเสธ','bad');
+      const { error } = await sb.rpc('reject_req', {p_txn_id:t.txn_id, p_reason:$('#rj').value.trim()});
+      if (error) toast(error.message,'bad'); else { toast('ปฏิเสธแล้ว','ok'); refreshDots(); go('disp'); }
+    };
+  };
+}
+async function reorderTab(el){
+  const vs = visibleStores().filter(s=>s.store_type==='SUB');
+  el.innerHTML = `<div class="card"><div class="row"><div><label>คลัง</label>${storePicker('os', vs, curStore())}</div><div><label>ค้นหา</label><input id="oq" placeholder="ชื่อหรือรหัส"></div>
+    <div style="min-width:180px"><label style="margin-top:22px"><input type="checkbox" id="oonly"> เฉพาะที่ควรเบิก</label></div></div></div>
+    <div class="card"><div class="sub">ควรเบิกจากคลังใหญ่ = Max − คงเหลือ เมื่อคงเหลือต่ำกว่า Min · "ขอเบิกรอจ่าย" คือจำนวนที่บุคลากรขอไว้แต่คลังยังไม่จ่าย</div><div id="ot"></div></div>`;
+  const cls = {'หมด':'b-bad','ต่ำกว่า Min':'b-warn','เกิน Max':'b-info','ปกติ':'b-ok'};
+  let rows = [];
+  const load = async () => {
+    const my = +$('#os').value; const allowed = storeItems.filter(x=>x.store_id===my);
+    const bal = sumByItem(await balanceRows(my));
+    const pending = await must(sb.from('stock_txn').select('txn_id').eq('txn_type','REQ').eq('from_store_id', my).eq('status','SUBMIT'));
+    const pend = {}; if (pending.length) (await must(sb.from('stock_txn_line').select('item_id,qty').in('txn_id', pending.map(t=>t.txn_id)))).forEach(l=>pend[l.item_id]=(pend[l.item_id]||0)+Number(l.qty));
+    rows = allowed.map(a=>{ const it=itemById(a.item_id); const b=bal[a.item_id]||0; const need = b<a.min_qty ? a.max_qty-b : 0;
+      return {...a, code:it?.item_code, name:it?.item_name, unit:it?.base_unit, bal:b, pend:pend[a.item_id]||0, need, st: b<=0?'หมด':b<a.min_qty?'ต่ำกว่า Min':b>a.max_qty?'เกิน Max':'ปกติ'}; })
+      .sort((x,y)=>(y.need>0)-(x.need>0) || (x.name||'').localeCompare(y.name||'','th'));
+    draw();
+  };
+  const draw = () => { const q=$('#oq').value.trim().toLowerCase(), only=$('#oonly').checked;
+    $('#ot').innerHTML = tbl(rows.filter(r=>(!only||r.need>0) && (!q || (r.name||'').toLowerCase().includes(q) || (r.code||'').toLowerCase().includes(q))),
+      [['code','รหัส'],['name','รายการ'],['bal','คงเหลือ',(v,r)=>`<b style="color:${v<r.min_qty?'var(--bad)':'inherit'}">${fmt(v)}</b>`,1],['min_qty','Min',fmt,1],['max_qty','Max',fmt,1],
+       ['pend','ขอเบิกรอจ่าย',v=>v?fmt(v):'',1],['need','ควรเบิก',v=>v?`<span class="badge b-warn">${fmt(v)}</span>`:'',1],['unit','หน่วย'],['st','สถานะ',v=>`<span class="badge ${cls[v]}">${v}</span>`]], {empty:'ไม่มีรายการ'}); };
+  $('#os').onchange = load; $('#oq').oninput = draw; $('#oonly').onchange = draw; load();
+}
+async function reqRecvIn(el, my){
+  if (!storeItems.some(x=>x.store_id===my)) { el.innerHTML = noItemsMsg(); return; }
+  el.innerHTML = `<div class="card"><h3>รับเข้าคลัง</h3><div class="sub">ของจากคลังใหญ่หรือผู้ขาย</div>
+      <div class="note">ต้องใส่ราคาต่อหน่วยทุกรายการ · Lot และวันหมดอายุใส่ถ้ามี · ระบบคำนวณราคาทุนเฉลี่ยของคลังใหม่ให้อัตโนมัติ</div>
       <div class="row" style="margin-bottom:12px">
-        <div style="flex:2"><label>บริษัทผู้ขาย</label><select id="rven"><option value="">— ไม่ระบุ / รับจากคลังใหญ่ —</option>${vendors.filter(v=>v.is_active).map(v=>`<option value="${v.vendor_id}">${esc(v.vendor_name)} (${esc(v.vendor_code)})</option>`).join('')}</select></div>
-        <div><label>เลขที่เอกสารอ้างอิง (ใบรับของ/ใบส่งของ)</label><input id="rdoc" placeholder="เช่น DO-2569/0123"></div>
+        <div style="flex:2"><label>รับจาก</label><select id="rven"><option value="">คลังใหญ่ (ภายนอก)</option>${vendors.filter(v=>v.is_active).map(v=>`<option value="${v.vendor_id}">${esc(v.vendor_name)} (${esc(v.vendor_code)})</option>`).join('')}</select></div>
+        <div><label>เลขที่เอกสารอ้างอิง (ใบเบิก/ใบจ่าย/ใบส่งของ)</label><input id="rdoc" placeholder="เช่น DO-2569/0123"></div>
         <div><label>วันที่เอกสาร</label><input id="rdate" type="date"></div></div>
       <div class="row" style="margin-bottom:12px"><div><label>หมายเหตุ</label><input id="rrem"></div></div>
-      <div id="lines"></div><div style="margin-top:16px;text-align:right"><button class="pri" id="save">บันทึกรับเข้า</button></div>`;
-    const ed = lineEditor($('#lines'), {itemList:()=>boundItems(my), initial:init, cols:['uom','lot','exp','cost','info'],
-      info:r=> r.item_id ? `ทุนเฉลี่ยเดิม ${baht(avgCost(my, +r.item_id))}` : ''});
-    $('#save').onclick = async () => {
-      const lines = ed.get(); if (!lines.length) return toast('ยังไม่มีรายการ','bad');
-      if (lines.some(l=>!l.lot_no)) return toast('กรุณาระบุ Lot ทุกรายการ','bad');
-      if (lines.some(l=>itemById(l.item_id)?.item_type!=='OFFICE' && !l.exp_date)) return toast('ยาและเวชภัณฑ์ต้องระบุวันหมดอายุ','bad');
-      if (lines.some(l=>!(l.unit_cost>0))) return toast('ต้องใส่ราคาต่อหน่วยทุกรายการ','bad');
-      $('#save').disabled = true;
-      try { await createTxn({txn_type:'RECV', to_store_id:my, ref_txn_id:t?.txn_id||null, status:'DRAFT', remark:$('#rrem').value||null,
-              vendor_id: $('#rven').value? +$('#rven').value : null, ref_doc_no: $('#rdoc').value.trim()||null, ref_doc_date: $('#rdate').value||null}, lines, true);
-        await loadMaster(); toast('รับเข้าแล้ว','ok'); go('rcv'); }
-      catch(e){ toast(errMsg(e),'bad'); $('#save').disabled=false; }
-    };
+      <div id="lines"></div><div style="margin-top:16px;text-align:right"><button class="pri" id="save">บันทึกรับเข้า</button></div></div>`;
+  const ed = lineEditor($('#lines'), {itemList:()=>boundItems(my), cols:['uom','lot','exp','cost','info'],
+    info:r=> r.item_id ? `ทุนเฉลี่ยเดิม ${baht(avgCost(my, +r.item_id))}` : ''});
+  $('#save').onclick = async () => {
+    const lines = ed.get(); if (!lines.length) return toast('ยังไม่มีรายการ','bad');
+    if (lines.some(l=>!(l.unit_cost>0))) return toast('ต้องใส่ราคาต่อหน่วยทุกรายการ','bad');
+    $('#save').disabled = true;
+    try { await createTxn({txn_type:'RECV', to_store_id:my, status:'DRAFT', remark:$('#rrem').value||null,
+            vendor_id: $('#rven').value? +$('#rven').value : null, ref_doc_no: $('#rdoc').value.trim()||null, ref_doc_date: $('#rdate').value||null}, lines, true);
+      await loadMaster(); toast('รับเข้าแล้ว','ok'); go('rcv'); }
+    catch(e){ toast(errMsg(e),'bad'); $('#save').disabled=false; }
   };
 }
 async function shipmentView(el, t, canConfirm){
@@ -685,19 +758,6 @@ async function reqReceive(el, my){
   $('#lst').innerHTML = list.length ? list.map((t,i)=>`<div class="clickrow" data-i="${i}" style="padding:10px;border-bottom:1px solid var(--line)"><b>${TYPE_TH[t.txn_type]}</b> ${esc(t.txn_no)}<div class="muted" style="font-size:13px">จาก ${esc(storeName(t.from_store_id))} · ส่ง ${dtt(t.posted_at)}</div></div>`).join('') : '<div class="empty">ไม่มีของโอนรอรับ</div>';
   $('#lst').onclick = e => { const r=e.target.closest('[data-i]'); if(!r) return; $('#lst').querySelectorAll('[data-i]').forEach(x=>x.classList.toggle('sel',x===r)); shipmentView($('#det'), list[+r.dataset.i], true); };
 }
-async function reqHistory(el, my){
-  const list = await must(sb.from('stock_txn').select('*').eq('txn_type','REQ').eq('to_store_id', my).order('txn_date',{ascending:false}).limit(100));
-  const issues = list.length ? await must(sb.from('stock_txn').select('txn_id,ref_txn_id,status,txn_no,posted_at').eq('txn_type','RECV').in('ref_txn_id', list.map(t=>t.txn_id))) : [];
-  el.innerHTML = `<div class="card" id="h"></div><div class="card" id="hd" style="display:none"></div>`;
-  $('#h').innerHTML = tbl(list.map(t=>({...t, iss: issues.find(x=>x.ref_txn_id===t.txn_id)})), [['txn_date','วันที่',dtt],['txn_no','เลขที่'],['status','ใบเบิก',statusBadge],
-    ['iss','การรับเข้า',v=>v?`${esc(v.txn_no)} · ${dt(v.posted_at)}`:'<span class="muted">ยังไม่ได้รับ</span>'],['remark','หมายเหตุ',v=>esc(v||'')]], {click:true, empty:'ยังไม่มีใบเบิก'});
-  $('#h').onclick = async e => { const r=e.target.closest('tr[data-i]'); if(!r) return; const t=list[+r.dataset.i];
-    const lines = await txnLines(t.txn_id); $('#hd').style.display='block';
-    $('#hd').innerHTML = docHead(t) + linesTable(lines) + (t.status==='SUBMIT' && t.created_by===me.user_id ? '<div style="margin-top:12px;text-align:right"><button class="danger" id="cx">ยกเลิกใบเบิก</button></div>':'');
-    if ($('#cx')) $('#cx').onclick = async () => { const { error } = await sb.from('stock_txn').update({status:'CANCEL'}).eq('txn_id', t.txn_id); if (error) toast(error.message,'bad'); else { toast('ยกเลิกแล้ว','ok'); refreshDots(); go('req'); } };
-    $('#hd').scrollIntoView({behavior:'smooth'}); };
-}
-
 // =====================================================================
 // 3) DISPENSING & TRANSFER
 // =====================================================================
@@ -705,8 +765,8 @@ async function pageDisp(){
   const my = curStore();
   const pick = !me.store_id ? `<div class="card"><label>ทำรายการในนามคลัง</label>${storePicker('actStore', subStores(), my)}</div>` : '';
   $('#view').innerHTML = `<h2>ตัดจ่ายและโอนย้าย</h2><div class="sub">${esc(storeName(my))}</div>${pick}`
-    + (()=>{ const T=[['use','จ่ายผู้ป่วย/ตัดใช้','disp'],['trf','โอนไปคลังย่อยอื่น','trf'],['exp','ชำรุด/หมดอายุ','exp']].filter(x=>can(x[2])).map(x=>[x[0],x[1]]);
-         return T.length ? tabs(T, (k,el)=>dispForm(el, my, k)) : '<div class="card empty">คุณยังไม่ได้รับสิทธิ์จ่ายออก โอน หรือตัดชำรุด กรุณาติดต่อผู้ดูแลระบบ</div>'; })();
+    + (()=>{ const T=[['reqs','จ่ายตามใบขอเบิก','disp'],['use','จ่ายผู้ป่วย/ตัดใช้','disp'],['trf','โอนไปคลังย่อยอื่น','trf'],['exp','ชำรุด/หมดอายุ','exp']].filter(x=>can(x[2])).map(x=>[x[0],x[1]]);
+         return T.length ? tabs(T, (k,el)=> k==='reqs' ? dispReqs(el, my) : dispForm(el, my, k)) : '<div class="card empty">คุณยังไม่ได้รับสิทธิ์จ่ายออก โอน หรือตัดชำรุด กรุณาติดต่อผู้ดูแลระบบ</div>'; })();
   if ($('#actStore')) $('#actStore').onchange = () => { window._act = +$('#actStore').value; go('disp'); };
 }
 async function dispForm(el, my, kind){
@@ -771,7 +831,7 @@ async function pageApprove(){
 // =====================================================================
 async function pageCard(){
   $('#view').innerHTML = `<h2>Stock Card และรายงาน</h2><div class="sub">ข้อมูลเรียลไทม์จากบัญชีเคลื่อนไหว</div>`
-    + tabs([['card','Stock Card'],['bal','ยอดคงเหลือ'],['mv','ความเคลื่อนไหวรับ-จ่าย'],['req','ประวัติการเบิก']], (k,el)=>({card:repCard,bal:repBal,mv:repMove,req:repReq})[k](el));
+    + tabs([['card','Stock Card'],['bal','ยอดคงเหลือ'],['reorder','จุดสั่งเบิก (Min/Max)'],['mv','ความเคลื่อนไหวรับ-จ่าย'],['req','ประวัติใบขอเบิก']], (k,el)=>({card:repCard,bal:repBal,reorder:reorderTab,mv:repMove,req:repReq})[k](el));
 }
 function visibleStores(){ return sees() ? stores : stores.filter(s=>s.store_id===me.store_id); }
 async function repCard(el){
@@ -824,15 +884,15 @@ async function repReq(el){
   const vs = visibleStores().filter(s=>s.store_type==='SUB');
   el.innerHTML = `<div class="card"><div class="row"><div><label>คลังย่อย</label><select id="rs">${sees()?'<option value="">ทุกคลังย่อย</option>':''}${vs.map(s=>`<option value="${s.store_id}" ${s.store_id===me.store_id?'selected':''}>${esc(s.store_name)}</option>`).join('')}</select></div><div></div></div></div><div class="card" id="rres"></div>`;
   const load = async () => {
-    let q = sb.from('stock_txn').select('*').eq('txn_type','REQ').order('txn_date',{ascending:false}).limit(300);
-    if ($('#rs').value) q = q.eq('to_store_id', +$('#rs').value);
-    const list = await must(q);
-    const ids = list.map(t=>t.txn_id);
-    const [lines, issues] = ids.length ? await Promise.all([must(sb.from('stock_txn_line').select('txn_id,qty').in('txn_id', ids)), must(sb.from('stock_txn').select('txn_id,ref_txn_id,status,posted_at').eq('txn_type','RECV').in('ref_txn_id', ids))]) : [[],[]];
-    $('#rres').innerHTML = tbl(list.map(t=>{ const is = issues.find(x=>x.ref_txn_id===t.txn_id); const hrs = is?.posted_at ? (new Date(is.posted_at)-new Date(t.txn_date))/36e5 : null;
-      return {...t, n: lines.filter(l=>l.txn_id===t.txn_id).length, is, hrs}; }),
-      [['txn_date','วันที่ขอ',dtt],['txn_no','เลขที่'],['to_store_id','คลังย่อย',v=>esc(storeName(v))],['n','รายการ',fmt,1],['status','ใบเบิก',statusBadge],
-       ['is','การรับเข้า',v=>v?dt(v.posted_at):'<span class="muted">ยังไม่ได้รับ</span>'],['hrs','เวลาเบิก→ได้รับ',v=>v==null?'':(v<24?fmt(v,1)+' ชม.':fmt(v/24,1)+' วัน'),1]], {empty:'ไม่มีใบเบิก'});
+    let q = sb.from('stock_txn').select('*').eq('txn_type','REQ').neq('status','DRAFT').order('txn_date',{ascending:false}).limit(300);
+    if ($('#rs').value) q = q.eq('from_store_id', +$('#rs').value);
+    const list = await must(q); const ids = list.map(t=>t.txn_id);
+    const [lines, who, iss] = ids.length ? await Promise.all([must(sb.from('stock_txn_line').select('txn_id,qty').in('txn_id', ids)), must(sb.rpc('req_requesters',{p_ids:ids})), must(sb.rpc('my_req_issues',{p_req_ids:ids}))]) : [[],[],[]];
+    $('#rres').innerHTML = tbl(list.map(t=>{ const is = iss.find(x=>x.ref_txn_id===t.txn_id); const w = who.find(x=>x.txn_id===t.txn_id)||{};
+      const hrs = is?.posted_at ? (new Date(is.posted_at)-new Date(t.txn_date))/36e5 : null;
+      return {...t, n: lines.filter(l=>l.txn_id===t.txn_id).length, who: [w.full_name, w.dept_name].filter(Boolean).join(' · '), is, hrs}; }),
+      [['txn_date','วันที่ขอ',dtt],['txn_no','เลขที่'],['from_store_id','คลัง',v=>esc(storeName(v))],['who','ผู้ขอ',v=>esc(v)],['n','รายการ',fmt,1],['status','สถานะ',reqBadge],
+       ['hrs','ขอ→ได้รับ',v=>v==null?'':(v<24?fmt(v,1)+' ชม.':fmt(v/24,1)+' วัน'),1]], {empty:'ไม่มีใบขอเบิก'});
   };
   $('#rs').onchange = load; load();
 }
@@ -852,7 +912,7 @@ async function pageAlert(){
     <div class="card"><h3 style="margin-bottom:8px">ใกล้หมดอายุ (90 วัน)</h3>${tbl(exp, [['store_name','คลัง'],['item_name','รายการ'],['lot_no','Lot'],['exp_date','หมดอายุ',dt],['days_left','เหลือ',v=>`<span class="badge ${v<=30?'b-bad':'b-warn'}">${v<0?'หมดแล้ว':v+' วัน'}</span>`,1],['qty_on_hand','คงเหลือ',fmt,1],['stock_value','มูลค่า',baht,1]])}
       ${exp.length && canPage('disp') ? '<div class="muted" style="font-size:13px;margin-top:8px">จัดการ: โอนให้คลังย่อยอื่นที่ใช้ทันก่อนหมดอายุ หรือตัดหมดอายุ ได้ที่เมนู "ตัดจ่ายและโอนย้าย"</div>':''}</div>
     <div class="card"><h3 style="margin-bottom:8px">ต่ำกว่า Min</h3>${tbl(low, [['store_name','คลัง'],['item_name','รายการ'],['on_hand','คงเหลือ',fmt,1],['min_qty','Min',fmt,1],['max_qty','Max',fmt,1],['suggest_req_qty','ควรเบิก',fmt,1]])}
-      ${low.length && canPage('req') ? '<div class="muted" style="font-size:13px;margin-top:8px">สร้างใบเบิกจากรายการนี้ได้ที่เมนู "ใบเบิก"</div>':''}</div>
+      ${low.length && canPage('rcv') ? '<div class="muted" style="font-size:13px;margin-top:8px">ควรเบิกเพิ่มจากคลังใหญ่ แล้วบันทึกที่เมนู "รับเข้า"</div>':''}</div>
     <div class="card"><h3 style="margin-bottom:8px">รอยืนยันรับเข้า</h3>${tbl(ship, [['posted_at','ส่งเมื่อ',dtt],['txn_no','เลขที่'],['txn_type','ประเภท',v=>TYPE_TH[v]],['from_store_id','จาก',v=>esc(storeName(v))],['to_store_id','ถึง',v=>esc(storeName(v))]])}</div>`;
 }
 
@@ -919,16 +979,18 @@ async function masterBind(el, list, canEdit){
     const cur = storeItems.filter(x=>x.store_id===sid).map(x=>({...x, it:itemById(x.item_id), bal:bal[x.item_id]||0})).sort((a,b)=>(a.it?.item_name||'').localeCompare(b.it?.item_name||'','th'));
     const tot = cur.reduce((a,x)=>a+x.bal*Number(x.avg_cost),0);
     $('#mm').innerHTML = `<div class="card"><h3>${esc(storeName(sid))} · ${cur.length} รายการ</h3><div class="sub">มูลค่าคงคลังตามทุนเฉลี่ย ${baht(tot)} บาท</div><div style="overflow-x:auto">
-      <table><thead><tr><th>รหัส</th><th>รายการ</th><th>หน่วย</th><th class="num">คงเหลือ</th><th class="num">ทุนเฉลี่ย</th><th class="num">มูลค่า</th><th class="num" style="width:110px">Min</th><th class="num" style="width:110px">Max</th>${mine?'<th style="width:130px"></th>':''}</tr></thead><tbody>
+      <table><thead><tr><th>รหัส</th><th>รายการ</th><th>หน่วย</th><th class="num">คงเหลือ</th><th class="num">ทุนเฉลี่ย</th><th class="num">มูลค่า</th><th class="num" style="width:100px">Min</th><th class="num" style="width:100px">Max</th><th class="num" style="width:100px">สูงสุด/ใบ</th><th class="num" style="width:100px">สูงสุด/เดือน</th>${mine?'<th style="width:130px"></th>':''}</tr></thead><tbody>
       ${cur.map(x=>`<tr><td>${esc(x.it?.item_code)}</td><td>${esc(x.it?.item_name)}${x.it?.is_high_alert?' <span class="badge b-bad">High-alert</span>':''}</td><td>${esc(x.it?.base_unit)}</td>
         <td class="num" style="color:${x.bal<x.min_qty?'var(--bad)':'inherit'}">${fmt(x.bal)}</td><td class="num">${baht(x.avg_cost)}</td><td class="num">${baht(x.bal*x.avg_cost)}</td>
         ${mine?`<td><input data-i="${x.item_id}" data-f="min_qty" type="number" value="${x.min_qty}" style="text-align:right"></td><td><input data-i="${x.item_id}" data-f="max_qty" type="number" value="${x.max_qty}" style="text-align:right"></td>
+        <td><input data-i="${x.item_id}" data-f="max_per_req" type="number" value="${x.max_per_req??''}" placeholder="ไม่จำกัด" style="text-align:right"></td><td><input data-i="${x.item_id}" data-f="max_per_month" type="number" value="${x.max_per_month??''}" placeholder="ไม่จำกัด" style="text-align:right"></td>
         <td style="white-space:nowrap"><button class="ghost" data-save="${x.item_id}">บันทึก</button>${x.bal?'':`<button class="ghost danger" data-rm="${x.item_id}">เอาออก</button>`}</td>`
-        :`<td class="num">${fmt(x.min_qty)}</td><td class="num">${fmt(x.max_qty)}</td>`}</tr>`).join('') || `<tr><td colspan="9" class="empty">ยังไม่มีสินค้าผูกกับคลังนี้</td></tr>`}
+        :`<td class="num">${fmt(x.min_qty)}</td><td class="num">${fmt(x.max_qty)}</td><td class="num">${x.max_per_req!=null?fmt(x.max_per_req):'-'}</td><td class="num">${x.max_per_month!=null?fmt(x.max_per_month):'-'}</td>`}</tr>`).join('') || `<tr><td colspan="11" class="empty">ยังไม่มีสินค้าผูกกับคลังนี้</td></tr>`}
       </tbody></table></div></div>
       ${mine?`<div class="card"><h3 style="margin-bottom:12px">ผูกสินค้าจากทะเบียนกลาง</h3>
         <div class="row"><div style="flex:3"><label>สินค้า</label><select id="newI">${itemOptions(items.filter(i=>i.is_active && !cur.some(c=>c.item_id===i.item_id)))}</select></div>
         <div><label>Min</label><input id="newMin" type="number" style="text-align:right"></div><div><label>Max</label><input id="newMax" type="number" style="text-align:right"></div>
+        <div><label>ขอได้สูงสุด/ใบ</label><input id="newPR" type="number" placeholder="ไม่จำกัด" style="text-align:right"></div><div><label>ขอได้สูงสุด/เดือน</label><input id="newPM" type="number" placeholder="ไม่จำกัด" style="text-align:right"></div>
         <div style="flex:0"><button class="pri" id="addMM">ผูกกับคลัง</button></div></div></div>
       <div class="card"><h3 style="margin-bottom:4px">ไม่พบในทะเบียนกลาง? เพิ่มสินค้าใหม่</h3><div class="sub">เพิ่มแล้วผูกกับ${esc(storeName(sid))}ให้ทันที · ตรวจก่อนว่ายังไม่มีรหัสนี้ เพื่อไม่ให้ซ้ำ</div>
         <div class="row"><div><label>รหัส</label><input id="ic"></div><div style="flex:2"><label>ชื่อ</label><input id="in"></div>
@@ -943,7 +1005,7 @@ async function masterBind(el, list, canEdit){
     const sid = +$('#ms').value;
     try {
       if (e.target.id==='addMM') {
-        const rec = {store_id:sid, item_id:+$('#newI').value, min_qty:Number($('#newMin').value||0), max_qty:Number($('#newMax').value||0)};
+        const rec = {store_id:sid, item_id:+$('#newI').value, min_qty:Number($('#newMin').value||0), max_qty:Number($('#newMax').value||0), max_per_req:$('#newPR').value?Number($('#newPR').value):null, max_per_month:$('#newPM').value?Number($('#newPM').value):null};
         if (!rec.item_id) return toast('เลือกรายการ','bad'); if (rec.max_qty<rec.min_qty) return toast('Max ต้องไม่น้อยกว่า Min','bad');
         await must(sb.from('store_item').insert(rec)); toast('ผูกแล้ว','ok'); await loadMaster(); render();
       }
@@ -960,7 +1022,9 @@ async function masterBind(el, list, canEdit){
       if (e.target.dataset.save) {
         const iid = +e.target.dataset.save; const v = f => Number(el.querySelector(`input[data-i="${iid}"][data-f="${f}"]`).value||0);
         if (v('max_qty')<v('min_qty')) return toast('Max ต้องไม่น้อยกว่า Min','bad');
-        await must(sb.from('store_item').update({min_qty:v('min_qty'), max_qty:v('max_qty')}).eq('store_id',sid).eq('item_id',iid)); toast('บันทึกแล้ว','ok'); await loadMaster();
+        const nv = f => { const x = el.querySelector(`input[data-i="${iid}"][data-f="${f}"]`).value; return x===''?null:Number(x); };
+        if ((nv('max_per_req')??1)<=0 || (nv('max_per_month')??1)<=0) return toast('เพดานต้องมากกว่า 0 หรือเว้นว่าง = ไม่จำกัด','bad');
+        await must(sb.from('store_item').update({min_qty:v('min_qty'), max_qty:v('max_qty'), max_per_req:nv('max_per_req'), max_per_month:nv('max_per_month')}).eq('store_id',sid).eq('item_id',iid)); toast('บันทึกแล้ว','ok'); await loadMaster();
       }
       if (e.target.dataset.rm) { await must(sb.from('store_item').delete().eq('store_id',sid).eq('item_id',+e.target.dataset.rm)); toast('เอาออกแล้ว','ok'); await loadMaster(); render(); }
     } catch(err){ toast(errMsg(err),'bad'); }
