@@ -175,6 +175,8 @@ const route = t => (t.from_store_id?esc(storeName(t.from_store_id)):'คลั�
 const statusBadge = s => `<span class="badge ${STATUS_CLS[s]||''}">${STATUS_TH[s]||s}</span>`;
 function toast(msg, kind=''){ const t=$('#toast'); t.textContent=msg; t.className='toast '+kind; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', kind==='bad'?6000:3000); }
 function errMsg(e){ return (e && (e.message||e.error_description)) || String(e); }
+// แก้ไขข้อมูลผ่าน POST /rpc (บางเครือข่ายบล็อก HTTP PATCH)
+const upd = (table, set, match) => sb.rpc('api_update', { p_table: table, p_match: match, p_set: set });
 async function must(p){ const r = await p; if (r.error) throw r.error; return r.data; }
 
 // ---------- auth ----------
@@ -195,7 +197,7 @@ $('#chpw').onclick = () => {
     const a=$('#np1').value, b=$('#np2').value;
     if (a.length<8) return toast('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร','bad');
     if (a!==b) return toast('รหัสผ่านทั้งสองช่องไม่ตรงกัน','bad');
-    const { error } = await sb.auth.updateUser({ password:a });
+    const { error } = await sb.rpc('change_my_password', { p_new:a });
     if (error) toast(error.message,'bad'); else { toast('เปลี่ยนรหัสผ่านแล้ว','ok'); go(current); }
   };
 };
@@ -385,7 +387,7 @@ async function createTxn(head, lines, post){
   const r = await sb.from('stock_txn_line').insert(payload);
   if (r.error) { await sb.from('stock_txn').delete().eq('txn_id', t.txn_id); throw r.error; }
   if (wantStatus === 'SUBMIT') {
-    const u = await sb.from('stock_txn').update({status:'SUBMIT'}).eq('txn_id', t.txn_id);
+    const u = await upd('stock_txn', {status:'SUBMIT'}, {txn_id:t.txn_id});
     if (u.error) { await sb.from('stock_txn').delete().eq('txn_id', t.txn_id); throw u.error; }
     t.status = 'SUBMIT';
   }
@@ -445,7 +447,7 @@ async function setupStores(el){
     const id = e.target.dataset.save;
     if (id) {
       const tr = el.querySelector(`tr[data-id="${id}"]`); const g = f => tr.querySelector(`[data-f="${f}"]`);
-      const { error } = await sb.from('store').update({store_name:g('store_name').value.trim(), is_active:g('is_active').checked}).eq('store_id', +id);
+      const { error } = await upd('store', {store_name:g('store_name').value.trim(), is_active:g('is_active').checked}, {store_id:+id});
       if (error) return toast(error.message,'bad'); toast('บันทึกแล้ว','ok'); await loadMaster();
     }
   };
@@ -465,7 +467,7 @@ async function setupDepts(el){
       if (e.target.id==='addD') { const rec={dept_code:$('#dc').value.trim(), dept_name:$('#dn').value.trim()}; if(!rec.dept_code||!rec.dept_name) return toast('กรอกรหัสและชื่อ','bad');
         const { error } = await sb.from('department').insert(rec); if (error) return toast(error.code==='23505'?'รหัสนี้มีแล้ว':error.message,'bad'); toast('เพิ่มแล้ว','ok'); await loadMaster(); draw(); }
       const id = e.target.dataset.save;
-      if (id) { const tr=e.target.closest('tr'); await must(sb.from('department').update({dept_name:tr.querySelector('[data-f=dept_name]').value.trim(), is_active:tr.querySelector('[data-f=is_active]').checked}).eq('dept_id',+id)); toast('บันทึกแล้ว','ok'); await loadMaster(); }
+      if (id) { const tr=e.target.closest('tr'); await must(upd('department', {dept_name:tr.querySelector('[data-f=dept_name]').value.trim(), is_active:tr.querySelector('[data-f=is_active]').checked}, {dept_id:+id})); toast('บันทึกแล้ว','ok'); await loadMaster(); }
     } catch(err){ toast(errMsg(err),'bad'); }
   };
 }
@@ -648,7 +650,7 @@ async function reqMine(el){
       + tbl(lines.map(l=>({...l, name:itemById(l.item_id)?.item_name, unit:itemById(l.item_id)?.base_unit, got: t.status==='DONE'?(got[l.item_id]||0):null})),
         [['name','รายการ'],['qty','ขอ',fmt,1],['got','ได้รับ',(v,r)=>v==null?'':`<b style="color:${v<r.qty?'var(--warn)':'inherit'}">${fmt(v)}</b>`,1],['unit','หน่วย']])
       + (t.status==='SUBMIT' ? '<div style="margin-top:12px;text-align:right"><button class="danger" id="cx">ยกเลิกใบขอเบิก</button></div>' : '');
-    if ($('#cx')) $('#cx').onclick = async () => { const { error } = await sb.from('stock_txn').update({status:'CANCEL'}).eq('txn_id', t.txn_id); if (error) toast(error.message,'bad'); else { toast('ยกเลิกแล้ว','ok'); window._reqTab='mine'; go('req'); } };
+    if ($('#cx')) $('#cx').onclick = async () => { const { error } = await upd('stock_txn', {status:'CANCEL'}, {txn_id:t.txn_id}); if (error) toast(error.message,'bad'); else { toast('ยกเลิกแล้ว','ok'); window._reqTab='mine'; go('req'); } };
     $('#hd').scrollIntoView({behavior:'smooth'}); };
 }
 async function dispReqs(el, my){
@@ -1024,7 +1026,7 @@ async function masterBind(el, list, canEdit){
         if (v('max_qty')<v('min_qty')) return toast('Max ต้องไม่น้อยกว่า Min','bad');
         const nv = f => { const x = el.querySelector(`input[data-i="${iid}"][data-f="${f}"]`).value; return x===''?null:Number(x); };
         if ((nv('max_per_req')??1)<=0 || (nv('max_per_month')??1)<=0) return toast('เพดานต้องมากกว่า 0 หรือเว้นว่าง = ไม่จำกัด','bad');
-        await must(sb.from('store_item').update({min_qty:v('min_qty'), max_qty:v('max_qty'), max_per_req:nv('max_per_req'), max_per_month:nv('max_per_month')}).eq('store_id',sid).eq('item_id',iid)); toast('บันทึกแล้ว','ok'); await loadMaster();
+        await must(upd('store_item', {min_qty:v('min_qty'), max_qty:v('max_qty'), max_per_req:nv('max_per_req'), max_per_month:nv('max_per_month')}, {store_id:sid, item_id:iid})); toast('บันทึกแล้ว','ok'); await loadMaster();
       }
       if (e.target.dataset.rm) { await must(sb.from('store_item').delete().eq('store_id',sid).eq('item_id',+e.target.dataset.rm)); toast('เอาออกแล้ว','ok'); await loadMaster(); render(); }
     } catch(err){ toast(errMsg(err),'bad'); }
@@ -1058,7 +1060,7 @@ async function masterVendor(el, canEdit){
       const id = e.target.dataset.save;
       if (id) {
         const tr = e.target.closest('tr'); const g = f => tr.querySelector(`[data-f="${f}"]`);
-        await must(sb.from('vendor').update({vendor_name:g('vendor_name').value.trim(), tax_id:g('tax_id').value.trim()||null, phone:g('phone').value.trim()||null, contact:g('contact').value.trim()||null, is_active:g('is_active').checked}).eq('vendor_id', +id));
+        await must(upd('vendor', {vendor_name:g('vendor_name').value.trim(), tax_id:g('tax_id').value.trim()||null, phone:g('phone').value.trim()||null, contact:g('contact').value.trim()||null, is_active:g('is_active').checked}, {vendor_id:+id}));
         toast('บันทึกแล้ว','ok'); await loadMaster();
       }
     } catch(err){ toast(errMsg(err),'bad'); }
@@ -1075,7 +1077,7 @@ async function masterCatalog(el){
   el.onclick = async e => {
     const id = e.target.dataset.save; if (!id) return;
     const tr = e.target.closest('tr'); const g = f => tr.querySelector(`[data-f="${f}"]`);
-    const { error } = await sb.from('item').update({item_name:g('item_name').value.trim(), is_high_alert:g('is_high_alert').checked, is_active:g('is_active').checked}).eq('item_id', +id);
+    const { error } = await upd('item', {item_name:g('item_name').value.trim(), is_high_alert:g('is_high_alert').checked, is_active:g('is_active').checked}, {item_id:+id});
     if (error) toast(error.message,'bad'); else { toast('บันทึกแล้ว','ok'); await loadMaster(); }
   };
 }
@@ -1102,7 +1104,7 @@ async function pageUom(){
   $('#ucard').addEventListener('click', async e => {
     const tog = e.target.dataset.tog, del = e.target.dataset.delu;
     if (tog) { const u = uoms.find(x=>x.uom_id==tog);
-      const { error } = await sb.from('uom').update({is_active:!u.is_active}).eq('uom_id', u.uom_id);
+      const { error } = await upd('uom', {is_active:!u.is_active}, {uom_id:u.uom_id});
       if (error) return toast(error.message,'bad'); reload(); }
     if (del) { const { error } = await sb.from('uom').delete().eq('uom_id', +del);
       if (error) return toast('ลบไม่ได้: หน่วยนี้ถูกใช้อยู่','bad'); toast('ลบแล้ว','ok'); reload(); }
